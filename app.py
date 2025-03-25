@@ -3,11 +3,11 @@ import streamlit as st
 import pandas as pd
 import faiss
 import numpy as np
+import requests
 import torch
 import nest_asyncio
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # ✅ Apply AsyncIO Fix
 nest_asyncio.apply()
@@ -15,12 +15,13 @@ nest_asyncio.apply()
 # ✅ Set Streamlit Page Configuration (Must be First)
 st.set_page_config(page_title="Medical AI Assistant", layout="wide")
 
-# ✅ Load Medical LLM (Switching to Smaller Model for Faster Generation)
-model_name = "microsoft/BioGPT"  # ✅ Using smaller model for faster response
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-generator = AutoModelForCausalLM.from_pretrained(model_name)
+# ✅ Hugging Face Inference API Settings (Faster than Local Model)
+HF_API_URL = "https://api-inference.huggingface.co/models/microsoft/BioGPT"
+HF_API_KEY = "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"  # 🔥 Replace with your API key
 
-# ✅ Load Preprocessed Data (Cache to Speed Up)
+headers = {"Authorization": f"Bearer {HF_API_KEY}"}
+
+# ✅ Load Preprocessed Data (Cached)
 @st.cache_data
 def load_data():
     medical_df = pd.read_pickle("preprocessed_medical_data.pkl")
@@ -29,7 +30,7 @@ def load_data():
 
 medical_df = load_data()
 
-# ✅ Tokenize for BM25 (Cache to Avoid Repeated Processing)
+# ✅ Tokenize for BM25 (Cached)
 @st.cache_data
 def init_bm25():
     bm25_corpus = [text.split() for text in medical_df['combined_text']]
@@ -44,19 +45,19 @@ def load_embedding_model():
 
 embedding_model = load_embedding_model()
 
-# ✅ Compute & Cache Embeddings for FAISS
+# ✅ Compute & Cache FAISS Index (Using IndexIDMap2 for Faster Search)
 @st.cache_resource
 def build_faiss_index():
     embeddings = np.array([embedding_model.encode(text, convert_to_tensor=False) for text in medical_df['combined_text']])
     d = embeddings.shape[1]  # Embedding dimension
-    index = faiss.IndexFlatL2(d)
-    index.add(embeddings)
+    index = faiss.IndexIDMap2(faiss.IndexFlatL2(d))  # ✅ Faster indexing
+    index.add_with_ids(embeddings, np.arange(len(embeddings)))
     return index, embeddings
 
 faiss_index, embeddings = build_faiss_index()
 
-# ✅ Hybrid Retrieval Function (Optimized for Speed)
-def retrieve_documents(query, top_n=3):  # ✅ Reduced to top 3 for speed
+# ✅ Hybrid Retrieval Function (Super Fast)
+def retrieve_documents(query, top_n=2):  # ✅ Reduced to top 2 for speed
     query_tokens = query.lower().split()
     query_embedding = embedding_model.encode(query, convert_to_tensor=False).reshape(1, -1)
 
@@ -73,7 +74,7 @@ def retrieve_documents(query, top_n=3):  # ✅ Reduced to top 3 for speed
 
     return retrieved_data[['diagnosis', 'combined_text']]
 
-# ✅ Generate Structured Medical Report (Optimized for Speed)
+# ✅ Hugging Face API-Based Generation (Super Fast)
 def generate_medical_summary(user_query, retrieved_docs):
     prompt = f"""
     You are a medical AI assistant providing structured reports based on retrieved medical records.
@@ -94,10 +95,16 @@ def generate_medical_summary(user_query, retrieved_docs):
     Generate a concise, professional, and well-structured report based on the retrieved information.
     """
 
-    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)  # ✅ Reduced to 512 for speed
-    output = generator.generate(**inputs, max_new_tokens=200, do_sample=True, temperature=0.7)  # ✅ Reduced to 200 tokens
+    response = requests.post(
+        HF_API_URL,
+        headers=headers,
+        json={"inputs": prompt, "parameters": {"max_new_tokens": 150, "temperature": 0.7}},
+    )
 
-    return tokenizer.decode(output[0], skip_special_tokens=True)
+    if response.status_code == 200:
+        return response.json()[0]["generated_text"]
+    else:
+        return "⚠️ Error generating response. Try again later."
 
 # ✅ Streamlit UI
 st.title("🩺 Medical AI Assistant")
