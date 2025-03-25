@@ -12,19 +12,20 @@ from sentence_transformers import SentenceTransformer
 st.set_page_config(page_title="Medical AI Assistant", layout="wide")
 
 # ✅ Hugging Face API Details
-HF_API_URL = "https://api-inference.huggingface.co/models/google/flan-t5-large"  # Change if using a different model
-HF_API_KEY = "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"  # Replace with your API key
+HF_API_URL = "https://api-inference.huggingface.co/models/google/flan-t5-large"
+HF_API_KEY = "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"  # Replace with actual API key
 HEADERS = {"Authorization": f"Bearer {HF_API_KEY}"}
 
 # ✅ Load & Cache Medical Data
 @st.cache_data
 def load_data():
-    medical_df = pd.read_pickle("preprocessed_medical_data.pkl")
-    diagnosis_df = pd.read_pickle("preprocessed_diagnosis_data.pkl")
-
-    # Combine relevant fields for retrieval
-    medical_df['combined_text'] = medical_df[['diagnosis', 'combined_text']].astype(str).agg(' '.join, axis=1)
-    return medical_df, diagnosis_df
+    med_data = pd.read_pickle("preprocessed_medical_data.pkl")
+    diag_data = pd.read_pickle("preprocessed_diagnosis_data.pkl")
+    
+    # Ensure text is combined for retrieval
+    med_data['combined_text'] = med_data[['diagnosis', 'combined_text']].astype(str).agg(' '.join, axis=1)
+    
+    return med_data, diag_data
 
 medical_df, diagnosis_df = load_data()
 
@@ -47,7 +48,7 @@ embedding_model = load_embedding_model()
 @st.cache_resource
 def build_faiss_index():
     embeddings = np.array([embedding_model.encode(text, convert_to_tensor=False) for text in medical_df['combined_text']])
-    d = embeddings.shape[1]  # Embedding dimension
+    d = embeddings.shape[1]
     index = faiss.IndexFlatL2(d)
     index.add(embeddings)
     return index
@@ -70,85 +71,67 @@ async def retrieve_documents(query, top_n=3):
     retrieved_docs = set(bm25_top_n) | set(faiss_top_n[0])
     retrieved_data = medical_df.iloc[list(retrieved_docs)]
 
-    return retrieved_data[['diagnosis', 'combined_text']]
+    # ✅ Extract Required Fields
+    extracted_info = {
+        "Diagnosis": retrieved_data["diagnosis"].tolist(),
+        "Symptoms": retrieved_data["symptoms"].tolist(),
+        "Medical Details": retrieved_data["combined_text"].tolist(),
+        "Treatment & Cure": retrieved_data["treatment"].tolist(),
+        "Physical Examination Findings": retrieved_data["physical_examination"].tolist()
+    }
 
-# ✅ Generate Structured Medical Report
-async def generate_medical_summary(user_query, retrieved_docs):
-    # ✅ Extract Structured Information from Retrieved Docs
-    diagnosis = retrieved_docs['diagnosis'].dropna().tolist()
-    combined_text = " ".join(retrieved_docs['combined_text'].dropna().tolist())
+    return extracted_info
 
-    # ✅ Truncate Retrieved Text to Prevent Token Overflow
-    truncated_text = " ".join(combined_text.split()[:500])  
+# ✅ Improved LLM Prompt & Generation
+async def generate_medical_summary(user_query, retrieved_info):
+    # ✅ Format Retrieved Information
+    formatted_info = "\n".join([f"**{key}:** {', '.join(val)}" for key, val in retrieved_info.items() if val])
 
-    # ✅ Prepare Prompt for LLM
     prompt = f"""
-    You are a medical AI assistant providing structured reports based on retrieved medical records.
-    Given the user query and extracted medical records, generate a professional, structured report.
-
+    You are a medical AI assistant providing structured medical reports.
+    
     **User Query:** {user_query}
-
-    **Retrieved Information:**
-    - **Diagnosis:** {', '.join(diagnosis) if diagnosis else "N/A"}
-    - **Symptoms:** (Extract from retrieved records)
-    - **Medical Details:** (Extract from retrieved records)
-    - **Treatment & Cure:** (Infer based on retrieved medical knowledge)
-    - **Physical Examination Findings:** (Extract if available)
-
-    **Complete Structured Report:**
-    - **Diagnosis:** {', '.join(diagnosis) if diagnosis else "N/A"}
-    - **Symptoms:** (Extract explicitly from records)
-    - **Medical Details:** (Extract relevant knowledge)
-    - **Treatment & Cure:** (Provide best treatment approach)
-    - **Physical Examination Findings:** (Extract if available)
-
-    If any information is missing, use your medical reasoning to infer plausible details.
-    Ensure the report is **concise, professional, and informative**.
+    
+    **Retrieved Medical Records:**
+    {formatted_info}
+    
+    **Structured Medical Report:**
+    - **Diagnosis:** Extracted or inferred from retrieved records.
+    - **Symptoms:** Extracted from retrieved records.
+    - **Medical Details:** Summarized from retrieved data.
+    - **Treatment & Cure:** Provide recommended treatment based on the extracted medical details.
+    - **Physical Examination Findings:** If available, extract from retrieved data.
+    
+    If any section is missing, generate it based on medical knowledge.
     """
 
-    # ✅ Call Hugging Face API
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            response = requests.post(
-                HF_API_URL,
-                headers=HEADERS,
-                json={"inputs": prompt, "parameters": {"max_new_tokens": 250}},  # Adjusted to model's limit
-                timeout=30
-            )
+    # ✅ Send Request to Hugging Face API
+    response = requests.post(
+        HF_API_URL,
+        headers=HEADERS,
+        json={"inputs": prompt, "parameters": {"max_new_tokens": 250}},  # Fixed token limit
+        timeout=30
+    )
 
-            if response.status_code == 200:
-                json_response = response.json()
-                if isinstance(json_response, list) and "generated_text" in json_response[0]:
-                    return json_response[0]["generated_text"]
-                else:
-                    return "⚠️ API returned an unexpected response format."
-
-            elif response.status_code == 422:
-                return "⚠️ Input too long. Try a shorter query."
-
-            else:
-                return f"⚠️ Error {response.status_code}: {response.json()}"
-
-        except requests.exceptions.RequestException as e:
-            st.error(f"⚠️ Network error: {e}")
-            if attempt < max_retries - 1:
-                st.warning(f"Retrying... ({attempt+1}/{max_retries})")
-            else:
-                return "⚠️ API request failed after multiple attempts. Please try again later."
+    # ✅ Handle API Response
+    if response.status_code == 200:
+        json_response = response.json()
+        return json_response[0].get("generated_text", "⚠️ No valid response from LLM.")
+    else:
+        return f"⚠️ API Error {response.status_code}: {response.json()}"
 
 # ✅ Streamlit UI
 st.title("🩺 Medical AI Assistant")
 st.write("Enter a medical case or symptoms to generate a structured medical report.")
 
-query = st.text_area("🔍 Enter Medical Query:", placeholder="E.g., Diabetic patient with foot pain and numbness")
+query = st.text_area("🔍 Enter Medical Query:", placeholder="E.g., Patient with fever and cough")
 
 if st.button("Generate Report"):
     if query.strip():
         with st.spinner("🔄 Retrieving relevant medical records..."):
             retrieved_results = asyncio.run(retrieve_documents(query))
 
-        if not retrieved_results.empty:
+        if retrieved_results and any(retrieved_results.values()):
             with st.spinner("🧠 Generating structured medical report..."):
                 summary = asyncio.run(generate_medical_summary(query, retrieved_results))
 
