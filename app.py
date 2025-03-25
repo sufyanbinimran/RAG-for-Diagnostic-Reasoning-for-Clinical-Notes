@@ -85,42 +85,65 @@ async def retrieve_documents(query, top_n=3):
     return extracted_info
 
 # ✅ Improved LLM Prompt & Generation
-async def generate_medical_summary(user_query, retrieved_info):
-    # ✅ Format Retrieved Information
-    formatted_info = "\n".join([f"**{key}:** {', '.join(val)}" for key, val in retrieved_info.items() if val])
+import time
+
+async def generate_medical_summary(user_query, retrieved_docs):
+    # ✅ Truncate retrieved records to avoid exceeding token limit
+    retrieved_text = retrieved_docs.to_string(index=False)
+    truncated_text = " ".join(retrieved_text.split()[:500])  # Limit to 500 words
 
     prompt = f"""
-    You are a medical AI assistant providing structured medical reports.
-    
+    You are a medical AI assistant providing structured reports based on retrieved medical records.
+    Your task is to extract the most relevant medical details from the retrieved records and present them in a structured, professional format.
+
     **User Query:** {user_query}
-    
-    **Retrieved Medical Records:**
-    {formatted_info}
-    
+
+    **Retrieved Medical Records:** {truncated_text}
+
     **Structured Medical Report:**
-    - **Diagnosis:** Extracted or inferred from retrieved records.
+    - **Diagnosis:** Extracted from retrieved records.
     - **Symptoms:** Extracted from retrieved records.
-    - **Medical Details:** Summarized from retrieved data.
-    - **Treatment & Cure:** Provide recommended treatment based on the extracted medical details.
-    - **Physical Examination Findings:** If available, extract from retrieved data.
-    
-    If any section is missing, generate it based on medical knowledge.
+    - **Medical Details:** Extracted from retrieved records.
+    - **Treatment & Cure:** Extracted or inferred based on medical details.
+    - **Physical Examination Findings:** Extracted from records if available.
+
+    Ensure that the report is **accurate, professional, and well-structured**.
     """
 
-    # ✅ Send Request to Hugging Face API
-    response = requests.post(
-        HF_API_URL,
-        headers=HEADERS,
-        json={"inputs": prompt, "parameters": {"max_new_tokens": 250}},  # Fixed token limit
-        timeout=30
-    )
+    # ✅ Retry API Call if it Fails
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(
+                HF_API_URL,
+                headers=HEADERS,
+                json={"inputs": prompt, "parameters": {"max_new_tokens": 250}},  # Ensure token limit
+                timeout=60  # ⬆️ Increased timeout from default to 60 seconds
+            )
 
-    # ✅ Handle API Response
-    if response.status_code == 200:
-        json_response = response.json()
-        return json_response[0].get("generated_text", "⚠️ No valid response from LLM.")
-    else:
-        return f"⚠️ API Error {response.status_code}: {response.json()}"
+            # ✅ If Response is Successful
+            if response.status_code == 200:
+                json_response = response.json()
+                if isinstance(json_response, list) and "generated_text" in json_response[0]:
+                    return json_response[0]["generated_text"]
+                else:
+                    return "⚠️ API returned an unexpected response format."
+
+            elif response.status_code == 422:
+                return "⚠️ Input too long. Please try a shorter query."
+
+            else:
+                return f"⚠️ Error {response.status_code}: {response.json()}"
+
+        except requests.exceptions.ReadTimeout:
+            st.warning(f"⚠️ Timeout occurred. Retrying... ({attempt+1}/{max_retries})")
+            time.sleep(5)  # ⏳ Wait before retrying
+
+        except requests.exceptions.RequestException as e:
+            st.error(f"⚠️ Network error: {e}")
+            return "⚠️ API request failed. Please try again later."
+
+    return "⚠️ API request timed out after multiple attempts. Please try again later."
 
 # ✅ Streamlit UI
 st.title("🩺 Medical AI Assistant")
