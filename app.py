@@ -13,7 +13,7 @@ st.set_page_config(page_title="Medical AI Assistant", layout="wide")
 
 # ✅ Hugging Face API Details (Using Falcon-7B-Instruct)
 HF_API_URL = "https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct"
-HF_API_KEY = "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"  # Replace with your API key
+HF_API_KEY = "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"  # Replace with your actual API key
 HEADERS = {"Authorization": f"Bearer {HF_API_KEY}"}
 
 # ✅ Load & Cache Medical Data
@@ -44,65 +44,57 @@ embedding_model = load_embedding_model()
 @st.cache_resource
 def build_faiss_index():
     embeddings = np.array([embedding_model.encode(text, convert_to_tensor=False) for text in medical_df['combined_text']])
-    d = embeddings.shape[1]  # Embedding dimension
+    d = embeddings.shape[1]
     index = faiss.IndexFlatL2(d)
     index.add(embeddings)
     return index
 
 faiss_index = build_faiss_index()
 
-# ✅ Hybrid Retrieval Function (Async for Speed)
+# ✅ Hybrid Retrieval Function (Async)
 async def retrieve_documents(query, top_n=3):
     query_tokens = query.lower().split()
     query_embedding = embedding_model.encode(query, convert_to_tensor=False).reshape(1, -1)
 
-    # ✅ BM25 Retrieval
     bm25_scores = bm25.get_scores(query_tokens)
     bm25_top_n = np.argsort(bm25_scores)[::-1][:top_n]
 
-    # ✅ FAISS Dense Retrieval
     _, faiss_top_n = faiss_index.search(query_embedding, top_n)
 
-    # ✅ Combine Results
     retrieved_docs = set(bm25_top_n) | set(faiss_top_n[0])
     retrieved_data = medical_df.iloc[list(retrieved_docs)]
 
     return retrieved_data[['diagnosis', 'combined_text']]
 
-# ✅ Hugging Face API-Based Text Generation (Fixed Token Limit)
+# ✅ Hugging Face API Text Generation
 async def generate_medical_summary(user_query, retrieved_docs):
-    # ✅ Truncate retrieved records to avoid exceeding token limit
     retrieved_text = retrieved_docs.to_string(index=False)
-    truncated_text = " ".join(retrieved_text.split()[:500])  # Limit to 500 words
+    truncated_text = " ".join(retrieved_text.split()[:500])
 
-    # ✅ Refined Prompt for Accurate Summary
     prompt = f"""
-You are a medical AI assistant providing structured and professional reports based on medical records.
-Use the following data to generate an informative and well-organized medical report.
+You are a medical AI assistant providing structured reports based on medical records.
 
 **User Query:** {user_query}
 
 **Retrieved Medical Records:** {truncated_text}
 
-Generate the report in the following format (fill each section with specific data from above):
+Generate the report in this format:
 
-**Diagnosis:** Summarize the diagnosis mentioned in the records.
-**Symptoms:** List key symptoms experienced by the patient.
-**Medical Details:** Summarize tests, results, findings, and medical history.
-**Treatment & Cure:** Mention any treatment provided or suggested.
-**Physical Examination Findings:** Summarize the physical examination and vital signs.
+**Diagnosis:** Summarize the diagnosis.
+**Symptoms:** List key symptoms.
+**Medical Details:** Summarize tests, results, findings, history.
+**Treatment & Cure:** Mention treatments suggested.
+**Physical Examination Findings:** Summarize physical examination.
 
-Generate the final structured report below:
+Provide the final structured report:
     """
 
-    # ✅ Retry API Call if it Fails
-    max_retries = 3
-    for attempt in range(max_retries):
+    for attempt in range(3):
         try:
             response = requests.post(
                 HF_API_URL,
                 headers=HEADERS,
-                json={"inputs": prompt, "parameters": {"max_new_tokens": 500}},  # ✅ Increased token limit
+                json={"inputs": prompt, "parameters": {"max_new_tokens": 500}},
                 timeout=30
             )
 
@@ -112,27 +104,61 @@ Generate the final structured report below:
                     return json_response[0]["generated_text"]
                 else:
                     return "⚠️ API returned an unexpected response format."
-
             elif response.status_code == 422:
-                return "⚠️ Input too long. Please try a shorter query."
-
+                return "⚠️ Input too long. Try a shorter query."
             else:
                 return f"⚠️ Error {response.status_code}: {response.json()}"
 
         except requests.exceptions.RequestException as e:
-            st.error(f"⚠️ Network error: {e}")
-            if attempt < max_retries - 1:
-                st.warning(f"Retrying... ({attempt + 1}/{max_retries})")
+            if attempt < 2:
+                st.warning(f"Retrying due to network error... ({attempt + 1}/3)")
             else:
-                return "⚠️ API request failed after multiple attempts. Please try again later."
+                return "⚠️ API request failed after multiple attempts. Try again later."
 
-# ✅ Streamlit UI
-st.title("🩺 Medical AI Assistant")
-st.write("Enter a medical case or symptoms to generate a structured medical report.")
+# ✅ Add Beautiful Custom Styling
+st.markdown("""
+    <style>
+    .report-section {
+        background-color: #f9f9f9;
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        font-family: 'Segoe UI', sans-serif;
+    }
+    .section-title {
+        color: #004d99;
+        font-size: 22px;
+        margin-bottom: 10px;
+    }
+    .report-text {
+        font-size: 16px;
+        line-height: 1.6;
+        color: #333333;
+    }
+    .header {
+        color: #2e86de;
+        font-size: 28px;
+        font-weight: bold;
+        text-align: center;
+        margin-bottom: 30px;
+    }
+    .footer {
+        text-align: center;
+        color: #777;
+        margin-top: 40px;
+        font-size: 14px;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
-query = st.text_area("🔍 Enter Medical Query:", placeholder="E.g., Diabetic patient with foot pain and numbness")
+# ✅ Main App Title
+st.markdown('<div class="header">🩺 AI-Powered Medical Report Generator</div>', unsafe_allow_html=True)
+st.write("Provide a medical case or patient symptoms to generate a detailed, structured report.")
 
-if st.button("Generate Report"):
+# ✅ User Query Input
+query = st.text_area("🔍 **Enter Medical Query:**", placeholder="E.g., Diabetic patient with foot pain and numbness", height=150)
+
+if st.button("🚀 Generate Report"):
     if query.strip():
         with st.spinner("🔄 Retrieving relevant medical records..."):
             retrieved_results = asyncio.run(retrieve_documents(query))
@@ -141,12 +167,27 @@ if st.button("Generate Report"):
             with st.spinner("🧠 Generating structured medical report..."):
                 summary = asyncio.run(generate_medical_summary(query, retrieved_results))
 
-            st.subheader("📄 Generated Medical Report:")
-            st.markdown(f"```{summary}```")
+            # ✅ Display Generated Report with Beautiful Formatting
+            st.markdown("### 📄 Generated Medical Report")
+            st.markdown('<div class="report-section">', unsafe_allow_html=True)
+            st.markdown(f"<div class='report-text'>{summary.replace('**', '<b>').replace('__', '</b>')}</div>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+            # ✅ Optional: Download Report
+            st.download_button(
+                label="💾 Download Report",
+                data=summary,
+                file_name="medical_report.txt",
+                mime="text/plain"
+            )
+
         else:
             st.warning("⚠️ No relevant medical records found. Please refine your query.")
     else:
         st.error("❌ Please enter a valid medical query.")
+
+# ✅ Footer
+st.markdown('<div class="footer">Developed with ❤️ for Medical Professionals</div>', unsafe_allow_html=True)
 
 # ✅ Run Streamlit App
 if __name__ == "__main__":
