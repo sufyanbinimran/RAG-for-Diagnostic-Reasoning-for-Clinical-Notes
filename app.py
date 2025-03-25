@@ -87,6 +87,10 @@ def retrieve_documents(query, top_n=5):
     retrieved_data_medical = medical_df.iloc[valid_retrieved_docs_medical, :]
     retrieved_data_diagnosis = diagnosis_df.iloc[valid_retrieved_docs_diagnosis, :]
 
+    # ✅ Limit the number of records for the model input
+    retrieved_data_medical = retrieved_data_medical.head(3)  # Limit to 3 records
+    retrieved_data_diagnosis = retrieved_data_diagnosis.head(3)  # Limit to 3 records
+
     # ✅ Merge retrieved data
     retrieved_data = pd.concat([retrieved_data_medical, retrieved_data_diagnosis], axis=0)
 
