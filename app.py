@@ -14,7 +14,7 @@ st.set_page_config(page_title="Medical AI Assistant", layout="wide")
 
 # ✅ Hugging Face API (Faster than Local Model)
 HF_API_URL = "https://api-inference.huggingface.co/models/facebook/bart-large-mnli"
-HF_API_KEY = "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"  # 🔥 Replace with your API key
+HF_API_KEY = "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"  # 🔥 Replace with your API key
 HEADERS = {"Authorization": f"Bearer {HF_API_KEY}"}
 
 # ✅ Load & Cache Medical Data
