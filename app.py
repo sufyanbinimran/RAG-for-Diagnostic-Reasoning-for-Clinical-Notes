@@ -75,22 +75,24 @@ async def generate_medical_summary(user_query, retrieved_docs):
     retrieved_text = retrieved_docs.to_string(index=False)
     truncated_text = " ".join(retrieved_text.split()[:500])  # Limit to 500 words
 
+    # ✅ Refined Prompt for Accurate Summary
     prompt = f"""
-    You are a medical AI assistant providing structured reports based on retrieved medical records.
-    Given the following information, generate a structured summary.
+You are a medical AI assistant providing structured and professional reports based on medical records.
+Use the following data to generate an informative and well-organized medical report.
 
-    **User Query:** {user_query}
+**User Query:** {user_query}
 
-    **Retrieved Medical Records:** {truncated_text}
+**Retrieved Medical Records:** {truncated_text}
 
-    **Structured Report:**
-    - **Diagnosis:** (Extract from retrieved records)
-    - **Symptoms:** (Extract from combined_text)
-    - **Medical Details:** (Extract relevant knowledge)
-    - **Treatment & Cure:** (Infer based on medical details)
-    - **Physical Examination Findings:** (If available, extract from records)
+Generate the report in the following format (fill each section with specific data from above):
 
-    Generate a professional and well-structured report.
+**Diagnosis:** Summarize the diagnosis mentioned in the records.
+**Symptoms:** List key symptoms experienced by the patient.
+**Medical Details:** Summarize tests, results, findings, and medical history.
+**Treatment & Cure:** Mention any treatment provided or suggested.
+**Physical Examination Findings:** Summarize the physical examination and vital signs.
+
+Generate the final structured report below:
     """
 
     # ✅ Retry API Call if it Fails
@@ -100,11 +102,10 @@ async def generate_medical_summary(user_query, retrieved_docs):
             response = requests.post(
                 HF_API_URL,
                 headers=HEADERS,
-                json={"inputs": prompt, "parameters": {"max_new_tokens": 300}},  # ✅ Limit output tokens
+                json={"inputs": prompt, "parameters": {"max_new_tokens": 500}},  # ✅ Increased token limit
                 timeout=30
             )
 
-            # ✅ If Response is Successful
             if response.status_code == 200:
                 json_response = response.json()
                 if isinstance(json_response, list) and "generated_text" in json_response[0]:
@@ -121,10 +122,9 @@ async def generate_medical_summary(user_query, retrieved_docs):
         except requests.exceptions.RequestException as e:
             st.error(f"⚠️ Network error: {e}")
             if attempt < max_retries - 1:
-                st.warning(f"Retrying... ({attempt+1}/{max_retries})")
+                st.warning(f"Retrying... ({attempt + 1}/{max_retries})")
             else:
                 return "⚠️ API request failed after multiple attempts. Please try again later."
-
 
 # ✅ Streamlit UI
 st.title("🩺 Medical AI Assistant")
