@@ -2,8 +2,9 @@ streamlit
 pandas
 faiss-cpu
 numpy
+torch
 rank-bm25
 sentence-transformers
-torch
 transformers
 sacremoses
+nest_asyncio
