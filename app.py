@@ -96,18 +96,28 @@ def generate_missing_info(field_name, user_query, retrieved_text):
 # ✅ Extract & Complete Structured Report
 def generate_structured_report(user_query, retrieved_docs):
     report = {}
+    
+    # ✅ Get the actual column names from the retrieved DataFrame
+    existing_columns = retrieved_docs.columns.tolist()
 
     for field in ["Diagnosis", "Symptoms", "Medical Details", "Treatment & Cure", 
                   "Physical Examination Findings", "Patient Information", "History", 
                   "Physical Examination", "Diagnostic Tests", "Treatment & Management", 
                   "Follow-Up Care", "Outlook"]:
         
-        retrieved_text = retrieved_docs[field.lower().replace(" ", "_")].to_string(index=False)
-        
-        if retrieved_text.strip() == "N/A":  # Use LLM only if data is missing
-            report[field] = generate_missing_info(field, user_query, retrieved_docs.to_string(index=False))
+        # Convert field name to match dataset column format
+        column_name = field.lower().replace(" ", "_")
+
+        if column_name in existing_columns:
+            retrieved_text = retrieved_docs[column_name].to_string(index=False)
+            
+            if retrieved_text.strip() == "N/A":  # Use LLM if data is missing
+                report[field] = generate_missing_info(field, user_query, retrieved_docs.to_string(index=False))
+            else:
+                report[field] = retrieved_text
         else:
-            report[field] = retrieved_text
+            # If the column does not exist, use LLM to generate data
+            report[field] = generate_missing_info(field, user_query, retrieved_docs.to_string(index=False))
 
     return report
 
