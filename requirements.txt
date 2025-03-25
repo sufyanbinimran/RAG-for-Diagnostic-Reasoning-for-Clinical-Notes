@@ -1,10 +1,11 @@
 streamlit
 pandas
-faiss-cpu
 numpy
 torch
-rank-bm25
+faiss-cpu
 sentence-transformers
 transformers
-sacremoses
+rank-bm25
 nest_asyncio
+sacremoses
+uvloop
