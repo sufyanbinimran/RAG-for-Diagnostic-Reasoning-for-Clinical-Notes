@@ -113,7 +113,7 @@ async def generate_medical_summary(user_query, retrieved_docs):
             response = requests.post(
                 HF_API_URL,
                 headers=HEADERS,
-                json={"inputs": prompt, "parameters": {"max_new_tokens": 350}},
+                json={"inputs": prompt, "parameters": {"max_new_tokens": 250}},  # Adjusted to model's limit
                 timeout=30
             )
 
