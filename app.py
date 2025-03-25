@@ -69,16 +69,19 @@ async def retrieve_documents(query, top_n=3):
 
     return retrieved_data[['diagnosis', 'combined_text']]
 
-# ✅ Hugging Face API-Based Text Generation (Fixed Format)
+# ✅ Hugging Face API-Based Text Generation (Fixed Token Limit)
 async def generate_medical_summary(user_query, retrieved_docs):
+    # ✅ Truncate retrieved records to avoid exceeding token limit
+    retrieved_text = retrieved_docs.to_string(index=False)
+    truncated_text = " ".join(retrieved_text.split()[:500])  # Limit to 500 words
+
     prompt = f"""
     You are a medical AI assistant providing structured reports based on retrieved medical records.
     Given the following information, generate a structured summary.
 
     **User Query:** {user_query}
 
-    **Retrieved Medical Records:**
-    {retrieved_docs.to_string(index=False)}
+    **Retrieved Medical Records:** {truncated_text}
 
     **Structured Report:**
     - **Diagnosis:** (Extract from retrieved records)
@@ -97,8 +100,8 @@ async def generate_medical_summary(user_query, retrieved_docs):
             response = requests.post(
                 HF_API_URL,
                 headers=HEADERS,
-                json={"inputs": prompt},  # ✅ Fixed incorrect API format
-                timeout=30  # Prevents long hangs
+                json={"inputs": prompt, "parameters": {"max_new_tokens": 300}},  # ✅ Limit output tokens
+                timeout=30
             )
 
             # ✅ If Response is Successful
@@ -109,15 +112,8 @@ async def generate_medical_summary(user_query, retrieved_docs):
                 else:
                     return "⚠️ API returned an unexpected response format."
 
-            elif response.status_code == 503:
-                st.warning("⚠️ The model is currently loading. Please wait a few moments and try again.")
-                return "⚠️ Falcon-7B is currently loading. Try again in 1-2 minutes."
-
-            elif response.status_code == 400:
-                return "⚠️ API request was incorrect. Please check the request format."
-
-            elif response.status_code == 403:
-                return "⚠️ API request failed. This model may require a Pro subscription."
+            elif response.status_code == 422:
+                return "⚠️ Input too long. Please try a shorter query."
 
             else:
                 return f"⚠️ Error {response.status_code}: {response.json()}"
@@ -128,6 +124,7 @@ async def generate_medical_summary(user_query, retrieved_docs):
                 st.warning(f"Retrying... ({attempt+1}/{max_retries})")
             else:
                 return "⚠️ API request failed after multiple attempts. Please try again later."
+
 
 # ✅ Streamlit UI
 st.title("🩺 Medical AI Assistant")
