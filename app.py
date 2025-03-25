@@ -3,32 +3,43 @@ import streamlit as st
 import pandas as pd
 import faiss
 import numpy as np
+import requests
+import json
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
-from transformers import AutoModelForCausalLM, AutoTokenizer
+
+# ✅ Hugging Face API Details (Using Falcon-7B-Instruct)
+HF_API_URL = "https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct"
+HF_API_KEY = "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"  # 🔹 Replace with your API key
+HEADERS = {"Authorization": f"Bearer {HF_API_KEY}"}
 
 # ✅ Streamlit Page Configuration
 st.set_page_config(page_title="Medical AI Assistant", layout="wide")
 
-# ✅ Load Medical LLM (BioGPT-Large)
-model_name = "microsoft/BioGPT-Large"
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-generator = AutoModelForCausalLM.from_pretrained(model_name)
-
-# ✅ Load & Cache Medical Data
+# ✅ Load & Cache Preprocessed Medical Data
 @st.cache_data
 def load_data():
     medical_df = pd.read_pickle("preprocessed_medical_data.pkl")
-    medical_df.fillna("N/A", inplace=True)  # Replace NaNs with "N/A" for missing values
-    return medical_df
+    diagnosis_df = pd.read_pickle("preprocessed_diagnosis_data.pkl")
 
-medical_df = load_data()
+    # ✅ Fill missing values
+    medical_df.fillna("N/A", inplace=True)
+    diagnosis_df.fillna("N/A", inplace=True)
+
+    return medical_df, diagnosis_df
+
+medical_df, diagnosis_df = load_data()
+
+# ✅ Combine Available Information for Retrieval
+medical_df['combined_text'] = medical_df[['diagnosis', 'combined_text']].astype(str).agg(' '.join, axis=1)
+diagnosis_df['combined_text'] = diagnosis_df.astype(str).agg(' '.join, axis=1)
 
 # ✅ Tokenize for BM25 (Cached)
 @st.cache_data
 def init_bm25():
-    bm25_corpus = [text.split() for text in medical_df['combined_text']]
-    return BM25Okapi(bm25_corpus)
+    combined_corpus = [text.split() for text in medical_df['combined_text']] + \
+                      [text.split() for text in diagnosis_df['combined_text']]
+    return BM25Okapi(combined_corpus)
 
 bm25 = init_bm25()
 
@@ -42,16 +53,19 @@ embedding_model = load_embedding_model()
 # ✅ Compute & Cache FAISS Index
 @st.cache_resource
 def build_faiss_index():
-    embeddings = np.array([embedding_model.encode(text, convert_to_tensor=False) for text in medical_df['combined_text']])
+    combined_texts = list(medical_df['combined_text']) + list(diagnosis_df['combined_text'])
+    embeddings = np.array([embedding_model.encode(text, convert_to_tensor=False) for text in combined_texts])
+
     d = embeddings.shape[1]  # Embedding dimension
     index = faiss.IndexFlatL2(d)
     index.add(embeddings)
+
     return index
 
 faiss_index = build_faiss_index()
 
 # ✅ Hybrid Retrieval Function
-def retrieve_documents(query, top_n=3):
+def retrieve_documents(query, top_n=5):
     query_tokens = query.lower().split()
     query_embedding = embedding_model.encode(query, convert_to_tensor=False).reshape(1, -1)
 
@@ -64,63 +78,49 @@ def retrieve_documents(query, top_n=3):
 
     # ✅ Combine Results
     retrieved_docs = set(bm25_top_n) | set(faiss_top_n[0])
-    retrieved_data = medical_df.iloc[list(retrieved_docs)]
+    
+    # ✅ Extracting Information from Both DataFrames
+    retrieved_data_medical = medical_df.iloc[list(retrieved_docs), :]
+    retrieved_data_diagnosis = diagnosis_df.iloc[list(retrieved_docs), :]
 
-    return retrieved_data
+    # ✅ Merge retrieved data
+    retrieved_data = pd.concat([retrieved_data_medical, retrieved_data_diagnosis], axis=0)
 
-# ✅ Generate Missing Fields Using BioGPT-Large
-def generate_missing_info(field_name, user_query, retrieved_text):
+    return retrieved_data[['diagnosis', 'combined_text']]
+
+# ✅ Generate Structured Medical Report via Hugging Face API
+def generate_medical_summary(user_query, retrieved_docs):
     prompt = f"""
-    You are a medical AI assistant. Given a user query and retrieved medical records, generate the missing field: **{field_name}**.
+    You are a medical AI assistant providing structured reports based on retrieved medical records.
+    Given the following information, generate a structured summary.
 
     **User Query:** {user_query}
-    **Retrieved Medical Records:** {retrieved_text}
 
-    **{field_name}:** (Provide a well-structured response)
+    **Retrieved Medical Records:**
+    {retrieved_docs.to_string(index=False)}
+
+    **Structured Report:**
+    - **Diagnosis:** (Extract from retrieved records)
+    - **Symptoms:** (Extract from combined_text)
+    - **Medical Details:** (Extract relevant knowledge)
+    - **Treatment & Cure:** (Infer based on medical details)
+    - **Physical Examination Findings:** (If available, extract from records)
+
+    Generate a professional and well-structured report based on the retrieved information.
     """
 
-    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
-    output = generator.generate(**inputs, max_new_tokens=300, do_sample=True, temperature=0.7)
-
-    return tokenizer.decode(output[0], skip_special_tokens=True)
-
-# ✅ Extract & Complete Structured Report
-def generate_structured_report(user_query, retrieved_docs):
-    report = {}
-    
-    # ✅ Get the actual column names from the retrieved DataFrame
-    existing_columns = retrieved_docs.columns.tolist()
-
-    # ✅ Define field-to-column mapping
-    field_mapping = {
-        "Diagnosis": "diagnosis",
-        "Symptoms": "symptoms",
-        "Medical Details": "medical_details",
-        "Treatment & Cure": "treatment",
-        "Physical Examination Findings": "physical_exam",
-        "Patient Information": "patient_info",
-        "History": "history",
-        "Physical Examination": "physical_exam",
-        "Diagnostic Tests": "diagnostic_tests",
-        "Treatment & Management": "treatment_management",
-        "Follow-Up Care": "follow_up",
-        "Outlook": "outlook"
+    payload = {
+        "inputs": prompt,
+        "parameters": {"max_new_tokens": 300, "temperature": 0.7, "do_sample": True}
     }
 
-    for field, column_name in field_mapping.items():
-        if column_name in existing_columns:
-            retrieved_text = retrieved_docs[column_name].astype(str).to_string(index=False).strip()
-            
-            # ✅ Use LLM only if data is missing
-            if not retrieved_text or retrieved_text.lower() in ["n/a", "unknown", ""]:
-                report[field] = generate_missing_info(field, user_query, retrieved_docs.to_string(index=False))
-            else:
-                report[field] = retrieved_text
-        else:
-            # ✅ Column not found → Use LLM
-            report[field] = generate_missing_info(field, user_query, retrieved_docs.to_string(index=False))
-
-    return report
+    response = requests.post(HF_API_URL, headers=HEADERS, json=payload)
+    
+    if response.status_code == 200:
+        result = response.json()
+        return result[0]['generated_text']
+    else:
+        return "⚠️ Error: Failed to generate medical report."
 
 # ✅ Streamlit UI
 st.title("🩺 Medical AI Assistant")
@@ -135,11 +135,10 @@ if st.button("Generate Report"):
 
         if not retrieved_results.empty:
             with st.spinner("🧠 Generating structured medical report..."):
-                report = generate_structured_report(query, retrieved_results)
+                summary = generate_medical_summary(query, retrieved_results)
 
             st.subheader("📄 Generated Medical Report:")
-            for section, content in report.items():
-                st.markdown(f"### {section}\n{content}")
+            st.write(summary)
 
         else:
             st.warning("⚠️ No relevant medical records found. Please refine your query.")
