@@ -11,9 +11,9 @@ from sentence_transformers import SentenceTransformer
 # ✅ Streamlit Page Configuration
 st.set_page_config(page_title="Medical AI Assistant", layout="wide")
 
-# ✅ Hugging Face API Details
-HF_API_URL = "https://api-inference.huggingface.co/models/google/flan-t5-large"
-HF_API_KEY = "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"  # Replace with your actual API key
+# ✅ Hugging Face API Details (Using Falcon-7B-Instruct)
+HF_API_URL = "https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct"
+HF_API_KEY = "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"  # Replace with your API key
 HEADERS = {"Authorization": f"Bearer {HF_API_KEY}"}
 
 # ✅ Load & Cache Medical Data
@@ -69,7 +69,7 @@ async def retrieve_documents(query, top_n=3):
 
     return retrieved_data[['diagnosis', 'combined_text']]
 
-# ✅ Hugging Face API-Based Text Generation (Super Fast)
+# ✅ Hugging Face API-Based Text Generation (Fixed Format)
 async def generate_medical_summary(user_query, retrieved_docs):
     prompt = f"""
     You are a medical AI assistant providing structured reports based on retrieved medical records.
@@ -97,7 +97,7 @@ async def generate_medical_summary(user_query, retrieved_docs):
             response = requests.post(
                 HF_API_URL,
                 headers=HEADERS,
-                json={"inputs": prompt, "parameters": {"max_new_tokens": 300, "temperature": 0.7}},
+                json={"inputs": prompt},  # ✅ Fixed incorrect API format
                 timeout=30  # Prevents long hangs
             )
 
@@ -111,10 +111,13 @@ async def generate_medical_summary(user_query, retrieved_docs):
 
             elif response.status_code == 503:
                 st.warning("⚠️ The model is currently loading. Please wait a few moments and try again.")
-                return "⚠️ BioGPT is currently loading. Try again in 1-2 minutes."
+                return "⚠️ Falcon-7B is currently loading. Try again in 1-2 minutes."
 
             elif response.status_code == 400:
                 return "⚠️ API request was incorrect. Please check the request format."
+
+            elif response.status_code == 403:
+                return "⚠️ API request failed. This model may require a Pro subscription."
 
             else:
                 return f"⚠️ Error {response.status_code}: {response.json()}"
