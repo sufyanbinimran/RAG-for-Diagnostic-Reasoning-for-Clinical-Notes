@@ -71,13 +71,15 @@ async def retrieve_documents(query, top_n=3):
     retrieved_docs = set(bm25_top_n) | set(faiss_top_n[0])
     retrieved_data = medical_df.iloc[list(retrieved_docs)]
 
-    # ✅ Extract Required Fields
+    # ✅ Check Available Columns Before Accessing
+    available_columns = retrieved_data.columns.tolist()
+
     extracted_info = {
-        "Diagnosis": retrieved_data["diagnosis"].tolist(),
-        "Symptoms": retrieved_data["symptoms"].tolist(),
-        "Medical Details": retrieved_data["combined_text"].tolist(),
-        "Treatment & Cure": retrieved_data["treatment"].tolist(),
-        "Physical Examination Findings": retrieved_data["physical_examination"].tolist()
+        "Diagnosis": retrieved_data["diagnosis"].tolist() if "diagnosis" in available_columns else ["Not Found"],
+        "Symptoms": retrieved_data["symptoms"].tolist() if "symptoms" in available_columns else ["Not Found"],
+        "Medical Details": retrieved_data["combined_text"].tolist() if "combined_text" in available_columns else ["Not Found"],
+        "Treatment & Cure": retrieved_data["treatment"].tolist() if "treatment" in available_columns else ["Not Found"],
+        "Physical Examination Findings": retrieved_data["physical_examination"].tolist() if "physical_examination" in available_columns else ["Not Found"]
     }
 
     return extracted_info
