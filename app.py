@@ -124,6 +124,7 @@ def generate_medical_summary(user_query, retrieved_docs):
         result = response.json()
         return result[0]['generated_text']
     else:
+        st.error(f"API error: {response.status_code} - {response.text}")
         return "⚠️ Error: Failed to generate medical report."
 
 # ✅ Streamlit UI
