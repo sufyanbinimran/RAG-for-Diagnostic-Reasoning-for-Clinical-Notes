@@ -74,24 +74,36 @@ async def generate_medical_summary(user_query, retrieved_docs):
     retrieved_text = retrieved_docs.to_string(index=False)
     truncated_text = " ".join(retrieved_text.split()[:500])  # Limit to 500 words
 
-    # ✅ Refined Prompt for Accurate Summary
+    # ✅ Refined Prompt for Professional Summary
     prompt = f"""
-You are a medical AI assistant providing structured and professional reports based on medical records.
-Use the following data to generate an informative and well-organized medical report.
+You are a professional medical AI assistant. Based on the following patient data and medical records, generate a clean, well-structured medical report.
 
-**User Query:** {user_query}
+=== User Query ===
+{user_query}
 
-**Retrieved Medical Records:** {truncated_text}
+=== Retrieved Medical Records ===
+{truncated_text}
 
-Generate the report in the following format (fill each section with specific data from above):
+Generate the report **strictly** in the following format (Use bullet points where necessary):
 
-**Diagnosis:** Summarize the diagnosis mentioned in the records.
-**Symptoms:** List key symptoms experienced by the patient.
-**Medical Details:** Summarize tests, results, findings, and medical history.
-**Treatment & Cure:** Mention any treatment provided or suggested.
-**Physical Examination Findings:** Summarize the physical examination and vital signs.
+================ Medical Report ================
+**Diagnosis:** 
+- [List the diagnosis from the records]
 
-Generate the final structured report below:
+**Symptoms:** 
+- [List key symptoms]
+
+**Medical Details:** 
+- [Summarize relevant tests, findings, and medical history]
+
+**Treatment & Cure:** 
+- [Mention any treatment or suggested plan]
+
+**Physical Examination Findings:** 
+- [Summarize any physical examinations or vital signs]
+
+Ensure the report is easy to read, medically professional, and structured with bullet points for each section.
+================================================
 """
 
     # ✅ Retry API Call if it Fails
@@ -138,8 +150,9 @@ if st.button("Generate Report"):
             with st.spinner("🧠 Generating structured medical report..."):
                 summary = asyncio.run(generate_medical_summary(query, retrieved_results))
 
+            # ✅ FINAL OUTPUT - ONLY Summary Displayed
             st.subheader("📄 Generated Medical Report:")
-            st.markdown(f"```{summary}```")
+            st.text(summary)   # Displays ONLY the clean summary
         else:
             st.warning("⚠️ No relevant medical records found. Please refine your query.")
     else:
