@@ -13,7 +13,7 @@ st.set_page_config(page_title="Medical AI Assistant", layout="wide")
 
 # ✅ Hugging Face API Details
 HF_API_URL = "https://api-inference.huggingface.co/models/microsoft/BioGPT-Large"
-HF_API_KEY = "your_huggingface_api_key_here"  # 🔥 Replace with your valid API key
+HF_API_KEY = "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"  # 🔥 Replace with your valid API key
 HEADERS = {"Authorization": f"Bearer {HF_API_KEY}"}
 
 # ✅ Load & Cache Medical Data
