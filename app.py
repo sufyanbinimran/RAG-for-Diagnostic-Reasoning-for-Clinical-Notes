@@ -5,19 +5,18 @@ import faiss
 import numpy as np
 import requests
 import torch
-import asyncio
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
 
-# ✅ Streamlit Page Configuration (Must be First)
+# ✅ Streamlit Page Configuration
 st.set_page_config(page_title="Medical AI Assistant", layout="wide")
 
-# ✅ Hugging Face API (Faster than Local Model)
+# ✅ Hugging Face API Setup (for Faster Response)
 HF_API_URL = "https://api-inference.huggingface.co/models/facebook/bart-large-mnli"
 HF_API_KEY = "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"  # 🔥 Replace with your API key
 HEADERS = {"Authorization": f"Bearer {HF_API_KEY}"}
 
-# ✅ Load & Cache Medical Data
+# ✅ Load Medical Data (Cached)
 @st.cache_data
 def load_data():
     medical_df = pd.read_pickle("preprocessed_medical_data.pkl")
@@ -34,26 +33,26 @@ def init_bm25():
 
 bm25 = init_bm25()
 
-# ✅ Load & Cache Dense Embedding Model
+# ✅ Load Sentence Transformer Model (Cached)
 @st.cache_resource
 def load_embedding_model():
     return SentenceTransformer('all-MiniLM-L6-v2')
 
 embedding_model = load_embedding_model()
 
-# ✅ Compute & Cache FAISS Index
+# ✅ Load FAISS Index (Cached)
 @st.cache_resource
 def build_faiss_index():
     embeddings = np.array([embedding_model.encode(text, convert_to_tensor=False) for text in medical_df['combined_text']])
-    d = embeddings.shape[1]  # Embedding dimension
+    d = embeddings.shape[1]
     index = faiss.IndexFlatL2(d)
     index.add(embeddings)
     return index
 
 faiss_index = build_faiss_index()
 
-# ✅ Hybrid Retrieval Function (Async for Speed)
-async def retrieve_documents(query, top_n=3):
+# ✅ Hybrid Retrieval Function
+def retrieve_documents(query, top_n=3):
     query_tokens = query.lower().split()
     query_embedding = embedding_model.encode(query, convert_to_tensor=False).reshape(1, -1)
 
@@ -70,8 +69,8 @@ async def retrieve_documents(query, top_n=3):
 
     return retrieved_data[['diagnosis', 'combined_text']]
 
-# ✅ Hugging Face API-Based Generation (Super Fast)
-async def generate_medical_summary(user_query, retrieved_docs):
+# ✅ Generate Structured Medical Report
+def generate_medical_summary(user_query, retrieved_docs):
     prompt = f"""
     You are a medical AI assistant providing structured reports based on retrieved medical records.
     Given the following information, generate a structured summary.
@@ -98,9 +97,12 @@ async def generate_medical_summary(user_query, retrieved_docs):
     )
 
     if response.status_code == 200:
-        return response.json()[0]["generated_text"]
+        try:
+            return response.json()["generated_text"]
+        except KeyError:
+            return "⚠️ API returned an unexpected response format."
     else:
-        return "⚠️ Error generating response. Try again later."
+        return f"⚠️ Error {response.status_code}: Unable to generate response."
 
 # ✅ Streamlit UI
 st.title("🩺 Medical AI Assistant")
@@ -111,11 +113,11 @@ query = st.text_area("🔍 Enter Medical Query:", placeholder="E.g., Diabetic pa
 if st.button("Generate Report"):
     if query.strip():
         with st.spinner("🔄 Retrieving relevant medical records..."):
-            retrieved_results = asyncio.run(retrieve_documents(query))
+            retrieved_results = retrieve_documents(query)
 
         if not retrieved_results.empty:
             with st.spinner("🧠 Generating structured medical report..."):
-                summary = asyncio.run(generate_medical_summary(query, retrieved_results))
+                summary = generate_medical_summary(query, retrieved_results)
 
             st.subheader("📄 Generated Medical Report:")
             st.markdown(f"```{summary}```")
