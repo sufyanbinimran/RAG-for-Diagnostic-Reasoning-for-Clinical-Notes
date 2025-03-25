@@ -5,23 +5,24 @@ import faiss
 import numpy as np
 import requests
 import torch
-import nest_asyncio
+import asyncio
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
 
-# ✅ Apply AsyncIO Fix
-nest_asyncio.apply()
-
-# ✅ Set Streamlit Page Configuration (Must be First)
+# ✅ Fix: Ensure Streamlit Page Configuration is First
 st.set_page_config(page_title="Medical AI Assistant", layout="wide")
 
-# ✅ Hugging Face Inference API Settings (Faster than Local Model)
+# ✅ Fix: Ensure AsyncIO Compatibility
+if not asyncio.get_event_loop().is_running():
+    asyncio.set_event_loop(asyncio.new_event_loop())
+
+# ✅ Hugging Face Inference API (Optimized)
 HF_API_URL = "https://api-inference.huggingface.co/models/microsoft/BioGPT"
 HF_API_KEY = "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"  # 🔥 Replace with your API key
 
 headers = {"Authorization": f"Bearer {HF_API_KEY}"}
 
-# ✅ Load Preprocessed Data (Cached)
+# ✅ Load & Cache Preprocessed Data
 @st.cache_data
 def load_data():
     medical_df = pd.read_pickle("preprocessed_medical_data.pkl")
@@ -38,26 +39,29 @@ def init_bm25():
 
 bm25 = init_bm25()
 
-# ✅ Load & Cache Dense Embedding Model
+# ✅ Load Sentence Embedding Model (Optimized for Speed)
 @st.cache_resource
 def load_embedding_model():
-    return SentenceTransformer('all-MiniLM-L6-v2')
+    return SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
 
 embedding_model = load_embedding_model()
 
-# ✅ Compute & Cache FAISS Index (Using IndexIDMap2 for Faster Search)
+# ✅ Build FAISS Index (Optimized for Speed)
 @st.cache_resource
 def build_faiss_index():
     embeddings = np.array([embedding_model.encode(text, convert_to_tensor=False) for text in medical_df['combined_text']])
-    d = embeddings.shape[1]  # Embedding dimension
-    index = faiss.IndexIDMap2(faiss.IndexFlatL2(d))  # ✅ Faster indexing
+    d = embeddings.shape[1]
+    
+    # ✅ Use IndexFlatIP for Faster Inner Product Search
+    index = faiss.IndexIDMap(faiss.IndexFlatIP(d))
     index.add_with_ids(embeddings, np.arange(len(embeddings)))
+
     return index, embeddings
 
 faiss_index, embeddings = build_faiss_index()
 
-# ✅ Hybrid Retrieval Function (Super Fast)
-def retrieve_documents(query, top_n=2):  # ✅ Reduced to top 2 for speed
+# ✅ Hybrid Retrieval Function (BM25 + FAISS)
+def retrieve_documents(query, top_n=3):  # ✅ Increased Top-N for More Accurate Results
     query_tokens = query.lower().split()
     query_embedding = embedding_model.encode(query, convert_to_tensor=False).reshape(1, -1)
 
@@ -68,13 +72,13 @@ def retrieve_documents(query, top_n=2):  # ✅ Reduced to top 2 for speed
     # ✅ FAISS Dense Retrieval
     _, faiss_top_n = faiss_index.search(query_embedding, top_n)
 
-    # ✅ Combine Results
+    # ✅ Merge Results
     retrieved_docs = set(bm25_top_n) | set(faiss_top_n[0])
     retrieved_data = medical_df.iloc[list(retrieved_docs)]
 
     return retrieved_data[['diagnosis', 'combined_text']]
 
-# ✅ Hugging Face API-Based Generation (Super Fast)
+# ✅ Hugging Face API-Based Generation (Improved Error Handling)
 def generate_medical_summary(user_query, retrieved_docs):
     prompt = f"""
     You are a medical AI assistant providing structured reports based on retrieved medical records.
@@ -95,16 +99,24 @@ def generate_medical_summary(user_query, retrieved_docs):
     Generate a concise, professional, and well-structured report based on the retrieved information.
     """
 
-    response = requests.post(
-        HF_API_URL,
-        headers=headers,
-        json={"inputs": prompt, "parameters": {"max_new_tokens": 150, "temperature": 0.7}},
-    )
+    try:
+        response = requests.post(
+            HF_API_URL,
+            headers=headers,
+            json={"inputs": prompt, "parameters": {"max_new_tokens": 150, "temperature": 0.7}},
+            timeout=20  # ✅ Added Timeout to Avoid Hanging Requests
+        )
 
-    if response.status_code == 200:
-        return response.json()[0]["generated_text"]
-    else:
-        return "⚠️ Error generating response. Try again later."
+        if response.status_code == 200:
+            return response.json()[0]["generated_text"]
+        else:
+            return f"⚠️ API Error ({response.status_code}): {response.text}"
+
+    except requests.exceptions.Timeout:
+        return "⚠️ API Timeout. Please try again."
+
+    except Exception as e:
+        return f"⚠️ Unexpected Error: {str(e)}"
 
 # ✅ Streamlit UI
 st.title("🩺 Medical AI Assistant")
