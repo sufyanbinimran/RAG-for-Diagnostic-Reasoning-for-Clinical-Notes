@@ -3,18 +3,17 @@ import streamlit as st
 import pandas as pd
 import faiss
 import numpy as np
-import requests
-import asyncio
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # ✅ Streamlit Page Configuration
 st.set_page_config(page_title="Medical AI Assistant", layout="wide")
 
-# ✅ Hugging Face API Details (Using Falcon-7B-Instruct)
-HF_API_URL = "https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct"
-HF_API_KEY = "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"  # Replace with your API key
-HEADERS = {"Authorization": f"Bearer {HF_API_KEY}"}
+# ✅ Load Medical LLM (BioGPT-Large)
+model_name = "microsoft/BioGPT-Large"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+generator = AutoModelForCausalLM.from_pretrained(model_name)
 
 # ✅ Load & Cache Medical Data
 @st.cache_data
@@ -69,7 +68,7 @@ def retrieve_documents(query, top_n=3):
 
     return retrieved_data
 
-# ✅ Hugging Face API-Based Text Completion
+# ✅ Generate Missing Fields Using BioGPT-Large
 def generate_missing_info(field_name, user_query, retrieved_text):
     prompt = f"""
     You are a medical AI assistant. Given a user query and retrieved medical records, generate the missing field: **{field_name}**.
@@ -80,18 +79,10 @@ def generate_missing_info(field_name, user_query, retrieved_text):
     **{field_name}:** (Provide a well-structured response)
     """
 
-    response = requests.post(
-        HF_API_URL,
-        headers=HEADERS,
-        json={"inputs": prompt, "parameters": {"max_new_tokens": 100}},  
-        timeout=30
-    )
+    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
+    output = generator.generate(**inputs, max_new_tokens=300, do_sample=True, temperature=0.7)
 
-    if response.status_code == 200:
-        json_response = response.json()
-        if isinstance(json_response, list) and "generated_text" in json_response[0]:
-            return json_response[0]["generated_text"]
-    return "⚠️ Unable to generate this field."
+    return tokenizer.decode(output[0], skip_special_tokens=True)
 
 # ✅ Extract & Complete Structured Report
 def generate_structured_report(user_query, retrieved_docs):
@@ -100,23 +91,33 @@ def generate_structured_report(user_query, retrieved_docs):
     # ✅ Get the actual column names from the retrieved DataFrame
     existing_columns = retrieved_docs.columns.tolist()
 
-    for field in ["Diagnosis", "Symptoms", "Medical Details", "Treatment & Cure", 
-                  "Physical Examination Findings", "Patient Information", "History", 
-                  "Physical Examination", "Diagnostic Tests", "Treatment & Management", 
-                  "Follow-Up Care", "Outlook"]:
-        
-        # Convert field name to match dataset column format
-        column_name = field.lower().replace(" ", "_")
+    # ✅ Define field-to-column mapping
+    field_mapping = {
+        "Diagnosis": "diagnosis",
+        "Symptoms": "symptoms",
+        "Medical Details": "medical_details",
+        "Treatment & Cure": "treatment",
+        "Physical Examination Findings": "physical_exam",
+        "Patient Information": "patient_info",
+        "History": "history",
+        "Physical Examination": "physical_exam",
+        "Diagnostic Tests": "diagnostic_tests",
+        "Treatment & Management": "treatment_management",
+        "Follow-Up Care": "follow_up",
+        "Outlook": "outlook"
+    }
 
+    for field, column_name in field_mapping.items():
         if column_name in existing_columns:
-            retrieved_text = retrieved_docs[column_name].to_string(index=False)
+            retrieved_text = retrieved_docs[column_name].astype(str).to_string(index=False).strip()
             
-            if retrieved_text.strip() == "N/A":  # Use LLM if data is missing
+            # ✅ Use LLM only if data is missing
+            if not retrieved_text or retrieved_text.lower() in ["n/a", "unknown", ""]:
                 report[field] = generate_missing_info(field, user_query, retrieved_docs.to_string(index=False))
             else:
                 report[field] = retrieved_text
         else:
-            # If the column does not exist, use LLM to generate data
+            # ✅ Column not found → Use LLM
             report[field] = generate_missing_info(field, user_query, retrieved_docs.to_string(index=False))
 
     return report
