@@ -142,9 +142,7 @@ if st.button("Generate Report"):
                 summary = asyncio.run(generate_medical_summary(query, retrieved_results))
 
             st.subheader("📄 Generated Medical Report:")
-            st.markdown(f"
-{summary}
-")
+            st.markdown(f"```{summary}```")
         else:
             st.warning("⚠️ No relevant medical records found. Please refine your query.")
     else:
