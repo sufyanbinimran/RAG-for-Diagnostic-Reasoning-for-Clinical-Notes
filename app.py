@@ -8,12 +8,12 @@ import asyncio
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
 
-# ✅ Streamlit Page Configuration (Must be First)
+# ✅ Streamlit Page Configuration
 st.set_page_config(page_title="Medical AI Assistant", layout="wide")
 
 # ✅ Hugging Face API Details
 HF_API_URL = "https://api-inference.huggingface.co/models/microsoft/BioGPT-Large"
-HF_API_KEY = "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"  # 🔥 Replace with your valid API key
+HF_API_KEY = "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"  # 🔥 Replace with your valid API key
 HEADERS = {"Authorization": f"Bearer {HF_API_KEY}"}
 
 # ✅ Load & Cache Medical Data
@@ -90,19 +90,41 @@ async def generate_medical_summary(user_query, retrieved_docs):
     Generate a professional and well-structured report.
     """
 
-    response = requests.post(
-        HF_API_URL,
-        headers=HEADERS,
-        json={"inputs": prompt, "parameters": {"max_new_tokens": 300, "temperature": 0.7}},
-    )
-
-    if response.status_code == 200:
+    # ✅ Retry API Call if it Fails
+    max_retries = 3
+    for attempt in range(max_retries):
         try:
-            return response.json()[0]["generated_text"]
-        except KeyError:
-            return "⚠️ API returned an unexpected response format."
-    else:
-        return f"⚠️ Error {response.status_code}: {response.json()}"
+            response = requests.post(
+                HF_API_URL,
+                headers=HEADERS,
+                json={"inputs": prompt, "parameters": {"max_new_tokens": 300, "temperature": 0.7}},
+                timeout=30  # Prevents long hangs
+            )
+
+            # ✅ If Response is Successful
+            if response.status_code == 200:
+                json_response = response.json()
+                if isinstance(json_response, list) and "generated_text" in json_response[0]:
+                    return json_response[0]["generated_text"]
+                else:
+                    return "⚠️ API returned an unexpected response format."
+
+            elif response.status_code == 503:
+                st.warning("⚠️ The model is currently loading. Please wait a few moments and try again.")
+                return "⚠️ BioGPT is currently loading. Try again in 1-2 minutes."
+
+            elif response.status_code == 400:
+                return "⚠️ API request was incorrect. Please check the request format."
+
+            else:
+                return f"⚠️ Error {response.status_code}: {response.json()}"
+
+        except requests.exceptions.RequestException as e:
+            st.error(f"⚠️ Network error: {e}")
+            if attempt < max_retries - 1:
+                st.warning(f"Retrying... ({attempt+1}/{max_retries})")
+            else:
+                return "⚠️ API request failed after multiple attempts. Please try again later."
 
 # ✅ Streamlit UI
 st.title("🩺 Medical AI Assistant")
