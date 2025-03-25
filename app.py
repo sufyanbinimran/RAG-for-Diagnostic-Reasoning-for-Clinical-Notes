@@ -98,6 +98,11 @@ def retrieve_documents(query, top_n=5):
 
 # ✅ Generate Structured Medical Report via Hugging Face API
 def generate_medical_summary(user_query, retrieved_docs):
+    # Truncate long combined text
+    combined_text = retrieved_docs.to_string(index=False)
+    max_tokens = 2048 - len(user_query.split())  # Ensure total tokens fit within the limit
+    truncated_combined_text = ' '.join(combined_text.split()[:max_tokens])
+
     prompt = f"""
     You are a medical AI assistant providing structured reports based on retrieved medical records.
     Given the following information, generate a structured summary.
@@ -105,7 +110,7 @@ def generate_medical_summary(user_query, retrieved_docs):
     **User Query:** {user_query}
 
     **Retrieved Medical Records:**
-    {retrieved_docs.to_string(index=False)}
+    {truncated_combined_text}
 
     **Structured Report:**
     - **Diagnosis:** (Extract from retrieved records)
@@ -116,7 +121,6 @@ def generate_medical_summary(user_query, retrieved_docs):
 
     Generate a professional and well-structured report based on the retrieved information.
     """
-
     payload = {
         "inputs": prompt,
         "parameters": {"max_new_tokens": 300, "temperature": 0.7, "do_sample": True}
@@ -130,6 +134,7 @@ def generate_medical_summary(user_query, retrieved_docs):
     else:
         st.error(f"API error: {response.status_code} - {response.text}")
         return "⚠️ Error: Failed to generate medical report."
+
 
 # ✅ Streamlit UI
 st.title("🩺 Medical AI Assistant")
