@@ -5,6 +5,7 @@ import faiss
 import numpy as np
 import requests
 import asyncio
+import matplotlib.pyplot as plt
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
 
@@ -44,7 +45,7 @@ embedding_model = load_embedding_model()
 @st.cache_resource
 def build_faiss_index():
     embeddings = np.array([embedding_model.encode(text, convert_to_tensor=False) for text in medical_df['combined_text']])
-    d = embeddings.shape[1]  # Embedding dimension
+    d = embeddings.shape[1]
     index = faiss.IndexFlatL2(d)
     index.add(embeddings)
     return index
@@ -56,26 +57,21 @@ async def retrieve_documents(query, top_n=3):
     query_tokens = query.lower().split()
     query_embedding = embedding_model.encode(query, convert_to_tensor=False).reshape(1, -1)
 
-    # ✅ BM25 Retrieval
     bm25_scores = bm25.get_scores(query_tokens)
     bm25_top_n = np.argsort(bm25_scores)[::-1][:top_n]
 
-    # ✅ FAISS Dense Retrieval
     _, faiss_top_n = faiss_index.search(query_embedding, top_n)
 
-    # ✅ Combine Results
     retrieved_docs = set(bm25_top_n) | set(faiss_top_n[0])
     retrieved_data = medical_df.iloc[list(retrieved_docs)]
 
     return retrieved_data[['diagnosis', 'combined_text']]
 
-# ✅ Hugging Face API-Based Text Generation (Fixed Token Limit)
+# ✅ Hugging Face API-Based Text Generation
 async def generate_medical_summary(user_query, retrieved_docs):
-    # ✅ Truncate retrieved records to avoid exceeding token limit
     retrieved_text = retrieved_docs.to_string(index=False)
     truncated_text = " ".join(retrieved_text.split()[:500])  # Limit to 500 words
 
-    # ✅ Refined Prompt for Accurate Summary
     prompt = f"""
 You are a medical AI assistant providing structured and professional reports based on medical records.
 Use the following data to generate an informative and well-organized medical report.
@@ -95,14 +91,13 @@ Generate the report in the following format (fill each section with specific dat
 Generate the final structured report below:
     """
 
-    # ✅ Retry API Call if it Fails
     max_retries = 3
     for attempt in range(max_retries):
         try:
             response = requests.post(
                 HF_API_URL,
                 headers=HEADERS,
-                json={"inputs": prompt, "parameters": {"max_new_tokens": 500}},  # ✅ Increased token limit
+                json={"inputs": prompt, "parameters": {"max_new_tokens": 500}},
                 timeout=30
             )
 
@@ -141,8 +136,40 @@ if st.button("Generate Report"):
             with st.spinner("🧠 Generating structured medical report..."):
                 summary = asyncio.run(generate_medical_summary(query, retrieved_results))
 
+            # ✅ Visually Appealing Output Rendering
             st.subheader("📄 Generated Medical Report:")
-            st.markdown(f"```{summary}```")
+
+            # ✅ Display summary with markdown for structured beauty
+            st.markdown("""
+<style>
+.report-box {
+    background-color: #f0f2f6;
+    border-left: 5px solid #2b7cff;
+    padding: 20px;
+    border-radius: 10px;
+    font-family: 'Courier New', monospace;
+    white-space: pre-wrap;
+}
+.section-title {
+    color: #2b7cff;
+    font-size: 20px;
+    font-weight: bold;
+    margin-top: 20px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+            st.markdown(f"<div class='report-box'>{summary}</div>", unsafe_allow_html=True)
+
+            # ✅ Optional Data Visualization (Example: Diagnosis Count Pie Chart)
+            diagnosis_counts = retrieved_results['diagnosis'].value_counts()
+
+            st.subheader("📊 Diagnosis Distribution in Retrieved Data")
+            fig, ax = plt.subplots(figsize=(5, 5))
+            ax.pie(diagnosis_counts, labels=diagnosis_counts.index, autopct='%1.1f%%', startangle=140)
+            ax.axis('equal')
+            st.pyplot(fig)
+
         else:
             st.warning("⚠️ No relevant medical records found. Please refine your query.")
     else:
