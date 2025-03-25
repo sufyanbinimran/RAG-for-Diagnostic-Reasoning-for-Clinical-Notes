@@ -4,42 +4,32 @@ import pandas as pd
 import faiss
 import numpy as np
 import requests
-import json
+import asyncio
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
-
-# ✅ Hugging Face API Details (Using Falcon-7B-Instruct)
-HF_API_URL = "https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct"
-HF_API_KEY = "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"  # 🔹 Replace with your API key
-HEADERS = {"Authorization": f"Bearer {HF_API_KEY}"}
 
 # ✅ Streamlit Page Configuration
 st.set_page_config(page_title="Medical AI Assistant", layout="wide")
 
-# ✅ Load & Cache Preprocessed Medical Data
+# ✅ Hugging Face API Details (Using Falcon-7B-Instruct)
+HF_API_URL = "https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct"
+HF_API_KEY = "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"  # Replace with your API key
+HEADERS = {"Authorization": f"Bearer {HF_API_KEY}"}
+
+# ✅ Load & Cache Medical Data
 @st.cache_data
 def load_data():
     medical_df = pd.read_pickle("preprocessed_medical_data.pkl")
-    diagnosis_df = pd.read_pickle("preprocessed_diagnosis_data.pkl")
+    medical_df['combined_text'] = medical_df[['diagnosis', 'combined_text']].astype(str).agg(' '.join, axis=1)
+    return medical_df
 
-    # ✅ Fill missing values
-    medical_df.fillna("N/A", inplace=True)
-    diagnosis_df.fillna("N/A", inplace=True)
-
-    return medical_df, diagnosis_df
-
-medical_df, diagnosis_df = load_data()
-
-# ✅ Combine Available Information for Retrieval
-medical_df['combined_text'] = medical_df[['diagnosis', 'combined_text']].astype(str).agg(' '.join, axis=1)
-diagnosis_df['combined_text'] = diagnosis_df.astype(str).agg(' '.join, axis=1)
+medical_df = load_data()
 
 # ✅ Tokenize for BM25 (Cached)
 @st.cache_data
 def init_bm25():
-    combined_corpus = [text.split() for text in medical_df['combined_text']] + \
-                      [text.split() for text in diagnosis_df['combined_text']]
-    return BM25Okapi(combined_corpus)
+    bm25_corpus = [text.split() for text in medical_df['combined_text']]
+    return BM25Okapi(bm25_corpus)
 
 bm25 = init_bm25()
 
@@ -53,19 +43,16 @@ embedding_model = load_embedding_model()
 # ✅ Compute & Cache FAISS Index
 @st.cache_resource
 def build_faiss_index():
-    combined_texts = list(medical_df['combined_text']) + list(diagnosis_df['combined_text'])
-    embeddings = np.array([embedding_model.encode(text, convert_to_tensor=False) for text in combined_texts])
-
+    embeddings = np.array([embedding_model.encode(text, convert_to_tensor=False) for text in medical_df['combined_text']])
     d = embeddings.shape[1]  # Embedding dimension
     index = faiss.IndexFlatL2(d)
     index.add(embeddings)
-
     return index
 
 faiss_index = build_faiss_index()
 
-# ✅ Hybrid Retrieval Function
-def retrieve_documents(query, top_n=5, max_words=300):
+# ✅ Hybrid Retrieval Function (Async for Speed)
+async def retrieve_documents(query, top_n=3):
     query_tokens = query.lower().split()
     query_embedding = embedding_model.encode(query, convert_to_tensor=False).reshape(1, -1)
 
@@ -78,36 +65,15 @@ def retrieve_documents(query, top_n=5, max_words=300):
 
     # ✅ Combine Results
     retrieved_docs = set(bm25_top_n) | set(faiss_top_n[0])
-
-    # ✅ Filter Out-of-Bounds Indices
-    valid_retrieved_docs_medical = [i for i in retrieved_docs if i < len(medical_df)]
-    valid_retrieved_docs_diagnosis = [i for i in retrieved_docs if i < len(diagnosis_df)]
-
-    # ✅ Extracting Information from Both DataFrames
-    retrieved_data_medical = medical_df.iloc[valid_retrieved_docs_medical, :]
-    retrieved_data_diagnosis = diagnosis_df.iloc[valid_retrieved_docs_diagnosis, :]
-
-    # ✅ Limit the number of words in each retrieved text
-    def limit_text_length(df, max_words):
-        return df['combined_text'].apply(lambda x: ' '.join(x.split()[:max_words]))
-
-    retrieved_data_medical['combined_text'] = limit_text_length(retrieved_data_medical, max_words)
-    retrieved_data_diagnosis['combined_text'] = limit_text_length(retrieved_data_diagnosis, max_words)
-
-    # ✅ Merge retrieved data
-    retrieved_data = pd.concat([retrieved_data_medical, retrieved_data_diagnosis], axis=0)
+    retrieved_data = medical_df.iloc[list(retrieved_docs)]
 
     return retrieved_data[['diagnosis', 'combined_text']]
 
-# ✅ Generate Structured Medical Report via Hugging Face API
-def generate_medical_summary(user_query, retrieved_docs):
-    # Truncate long combined text
-    combined_text = retrieved_docs.to_string(index=False)
-    combined_text_tokens = combined_text.split()
-
-    # Calculate how many tokens to keep to stay within the 2048 token limit
-    max_tokens = 2048 - len(user_query.split()) - 300  # Adjust for query and max_new_tokens
-    truncated_combined_text = ' '.join(combined_text_tokens[:max_tokens])
+# ✅ Hugging Face API-Based Text Generation (Fixed Token Limit)
+async def generate_medical_summary(user_query, retrieved_docs):
+    # ✅ Truncate retrieved records to avoid exceeding token limit
+    retrieved_text = retrieved_docs.to_string(index=False)
+    truncated_text = " ".join(retrieved_text.split()[:500])  # Limit to 500 words
 
     prompt = f"""
     You are a medical AI assistant providing structured reports based on retrieved medical records.
@@ -115,8 +81,7 @@ def generate_medical_summary(user_query, retrieved_docs):
 
     **User Query:** {user_query}
 
-    **Retrieved Medical Records:**
-    {truncated_combined_text}
+    **Retrieved Medical Records:** {truncated_text}
 
     **Structured Report:**
     - **Diagnosis:** (Extract from retrieved records)
@@ -125,21 +90,40 @@ def generate_medical_summary(user_query, retrieved_docs):
     - **Treatment & Cure:** (Infer based on medical details)
     - **Physical Examination Findings:** (If available, extract from records)
 
-    Generate a professional and well-structured report based on the retrieved information.
+    Generate a professional and well-structured report.
     """
-    payload = {
-        "inputs": prompt,
-        "parameters": {"max_new_tokens": 300, "temperature": 0.7, "do_sample": True}
-    }
 
-    response = requests.post(HF_API_URL, headers=HEADERS, json=payload)
+    # ✅ Retry API Call if it Fails
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(
+                HF_API_URL,
+                headers=HEADERS,
+                json={"inputs": prompt, "parameters": {"max_new_tokens": 300}},  # ✅ Limit output tokens
+                timeout=30
+            )
 
-    if response.status_code == 200:
-        result = response.json()
-        return result[0]['generated_text']
-    else:
-        st.error(f"API error: {response.status_code} - {response.text}")
-        return "⚠️ Error: Failed to generate medical report."
+            # ✅ If Response is Successful
+            if response.status_code == 200:
+                json_response = response.json()
+                if isinstance(json_response, list) and "generated_text" in json_response[0]:
+                    return json_response[0]["generated_text"]
+                else:
+                    return "⚠️ API returned an unexpected response format."
+
+            elif response.status_code == 422:
+                return "⚠️ Input too long. Please try a shorter query."
+
+            else:
+                return f"⚠️ Error {response.status_code}: {response.json()}"
+
+        except requests.exceptions.RequestException as e:
+            st.error(f"⚠️ Network error: {e}")
+            if attempt < max_retries - 1:
+                st.warning(f"Retrying... ({attempt+1}/{max_retries})")
+            else:
+                return "⚠️ API request failed after multiple attempts. Please try again later."
 
 
 # ✅ Streamlit UI
@@ -151,15 +135,14 @@ query = st.text_area("🔍 Enter Medical Query:", placeholder="E.g., Diabetic pa
 if st.button("Generate Report"):
     if query.strip():
         with st.spinner("🔄 Retrieving relevant medical records..."):
-            retrieved_results = retrieve_documents(query)
+            retrieved_results = asyncio.run(retrieve_documents(query))
 
         if not retrieved_results.empty:
             with st.spinner("🧠 Generating structured medical report..."):
-                summary = generate_medical_summary(query, retrieved_results)
+                summary = asyncio.run(generate_medical_summary(query, retrieved_results))
 
             st.subheader("📄 Generated Medical Report:")
-            st.write(summary)
-
+            st.markdown(f"```{summary}```")
         else:
             st.warning("⚠️ No relevant medical records found. Please refine your query.")
     else:
