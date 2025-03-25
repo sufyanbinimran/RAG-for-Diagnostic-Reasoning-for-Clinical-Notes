@@ -95,7 +95,6 @@ Provide the final structured report:
                 json={"inputs": prompt, "parameters": {"max_new_tokens": 500}},
                 timeout=30
             )
-
             if response.status_code == 200:
                 json_response = response.json()
                 if isinstance(json_response, list) and "generated_text" in json_response[0]:
@@ -106,7 +105,6 @@ Provide the final structured report:
                 return "⚠️ Input too long. Try a shorter query."
             else:
                 return f"⚠️ Error {response.status_code}: {response.json()}"
-
         except requests.exceptions.RequestException as e:
             if attempt < 2:
                 st.warning(f"Retrying... ({attempt + 1}/3)")
@@ -128,7 +126,6 @@ st.markdown("""
 
 # ✅ App Title
 st.markdown('<div class="header">🩺 AI Medical Report Generator</div>', unsafe_allow_html=True)
-
 st.markdown('<div class="query-box"><b>Provide patient symptoms or medical case details below:</b></div>', unsafe_allow_html=True)
 
 # ✅ User Input
@@ -170,6 +167,6 @@ if st.button("🚀 Generate Report"):
 # ✅ Footer
 st.markdown('<div class="footer">Developed with ❤️ for Medical Professionals | Powered by Falcon-7B</div>', unsafe_allow_html=True)
 
-# ✅ Run
+# ✅ Run (Optional for Streamlit apps)
 if __name__ == "__main__":
     st.write("🚀 AI Medical Assistant Ready!")
