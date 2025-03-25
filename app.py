@@ -70,6 +70,7 @@ async def retrieve_documents(query, top_n=3):
     return retrieved_data[['diagnosis', 'combined_text']]
 
 # ✅ Hugging Face API-Based Text Generation (Fixed Token Limit)
+# ✅ Hugging Face API-Based Text Generation (Improved Extraction)
 async def generate_medical_summary(user_query, retrieved_docs):
     # ✅ Truncate retrieved records to avoid exceeding token limit
     retrieved_text = retrieved_docs.to_string(index=False)
@@ -77,20 +78,24 @@ async def generate_medical_summary(user_query, retrieved_docs):
 
     prompt = f"""
     You are a medical AI assistant providing structured reports based on retrieved medical records.
-    Given the following information, generate a structured summary.
+    Your task is to extract the most relevant medical details from the retrieved records and present them in a structured, professional format.
 
     **User Query:** {user_query}
 
     **Retrieved Medical Records:** {truncated_text}
 
-    **Structured Report:**
-    - **Diagnosis:** (Extract from retrieved records)
-    - **Symptoms:** (Extract from combined_text)
-    - **Medical Details:** (Extract relevant knowledge)
-    - **Treatment & Cure:** (Infer based on medical details)
-    - **Physical Examination Findings:** (If available, extract from records)
+    **Structured Medical Report:**
+    - **Patient Information:** Summarize key demographic details, relevant medical history, and risk factors.
+    - **Symptoms:** Extract symptoms explicitly mentioned in records.
+    - **History:** Provide a summary of the patient's medical background and events leading to admission.
+    - **Physical Examination Findings:** Extract relevant findings from the examination.
+    - **Diagnostic Tests & Results:** Summarize key test results (e.g., CT, MRI, blood tests, ECHO).
+    - **Diagnosis:** Extract final or suspected diagnosis.
+    - **Treatment & Management:** Provide details on treatment approach (medications, procedures, interventions).
+    - **Follow-Up Care:** Recommendations for post-discharge care.
+    - **Outlook & Prognosis:** Summarize the expected recovery and potential complications.
 
-    Generate a professional and well-structured report.
+    Ensure that the report is **accurate, professional, and well-structured**.
     """
 
     # ✅ Retry API Call if it Fails
@@ -100,7 +105,7 @@ async def generate_medical_summary(user_query, retrieved_docs):
             response = requests.post(
                 HF_API_URL,
                 headers=HEADERS,
-                json={"inputs": prompt, "parameters": {"max_new_tokens": 300}},  # ✅ Limit output tokens
+                json={"inputs": prompt, "parameters": {"max_new_tokens": 350}},  # Increased token limit for detail
                 timeout=30
             )
 
