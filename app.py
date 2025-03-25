@@ -65,7 +65,7 @@ def build_faiss_index():
 faiss_index = build_faiss_index()
 
 # ✅ Hybrid Retrieval Function
-def retrieve_documents(query, top_n=5):
+def retrieve_documents(query, top_n=5, max_words=300):
     query_tokens = query.lower().split()
     query_embedding = embedding_model.encode(query, convert_to_tensor=False).reshape(1, -1)
 
@@ -87,9 +87,12 @@ def retrieve_documents(query, top_n=5):
     retrieved_data_medical = medical_df.iloc[valid_retrieved_docs_medical, :]
     retrieved_data_diagnosis = diagnosis_df.iloc[valid_retrieved_docs_diagnosis, :]
 
-    # ✅ Limit the number of records for the model input
-    retrieved_data_medical = retrieved_data_medical.head(3)  # Limit to 3 records
-    retrieved_data_diagnosis = retrieved_data_diagnosis.head(3)  # Limit to 3 records
+    # ✅ Limit the number of words in each retrieved text
+    def limit_text_length(df, max_words):
+        return df['combined_text'].apply(lambda x: ' '.join(x.split()[:max_words]))
+
+    retrieved_data_medical['combined_text'] = limit_text_length(retrieved_data_medical, max_words)
+    retrieved_data_diagnosis['combined_text'] = limit_text_length(retrieved_data_diagnosis, max_words)
 
     # ✅ Merge retrieved data
     retrieved_data = pd.concat([retrieved_data_medical, retrieved_data_diagnosis], axis=0)
@@ -100,8 +103,11 @@ def retrieve_documents(query, top_n=5):
 def generate_medical_summary(user_query, retrieved_docs):
     # Truncate long combined text
     combined_text = retrieved_docs.to_string(index=False)
-    max_tokens = 2048 - len(user_query.split())  # Ensure total tokens fit within the limit
-    truncated_combined_text = ' '.join(combined_text.split()[:max_tokens])
+    combined_text_tokens = combined_text.split()
+
+    # Calculate how many tokens to keep to stay within the 2048 token limit
+    max_tokens = 2048 - len(user_query.split()) - 300  # Adjust for query and max_new_tokens
+    truncated_combined_text = ' '.join(combined_text_tokens[:max_tokens])
 
     prompt = f"""
     You are a medical AI assistant providing structured reports based on retrieved medical records.
@@ -127,7 +133,7 @@ def generate_medical_summary(user_query, retrieved_docs):
     }
 
     response = requests.post(HF_API_URL, headers=HEADERS, json=payload)
-    
+
     if response.status_code == 200:
         result = response.json()
         return result[0]['generated_text']
