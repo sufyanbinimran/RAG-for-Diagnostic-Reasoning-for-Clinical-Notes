@@ -78,10 +78,14 @@ def retrieve_documents(query, top_n=5):
 
     # ✅ Combine Results
     retrieved_docs = set(bm25_top_n) | set(faiss_top_n[0])
-    
+
+    # ✅ Filter Out-of-Bounds Indices
+    valid_retrieved_docs_medical = [i for i in retrieved_docs if i < len(medical_df)]
+    valid_retrieved_docs_diagnosis = [i for i in retrieved_docs if i < len(diagnosis_df)]
+
     # ✅ Extracting Information from Both DataFrames
-    retrieved_data_medical = medical_df.iloc[list(retrieved_docs), :]
-    retrieved_data_diagnosis = diagnosis_df.iloc[list(retrieved_docs), :]
+    retrieved_data_medical = medical_df.iloc[valid_retrieved_docs_medical, :]
+    retrieved_data_diagnosis = diagnosis_df.iloc[valid_retrieved_docs_diagnosis, :]
 
     # ✅ Merge retrieved data
     retrieved_data = pd.concat([retrieved_data_medical, retrieved_data_diagnosis], axis=0)
