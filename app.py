@@ -20,7 +20,7 @@ HEADERS = {"Authorization": f"Bearer {HF_API_KEY}"}
 @st.cache_data
 def load_data():
     medical_df = pd.read_pickle("preprocessed_medical_data.pkl")
-    medical_df['combined_text'] = medical_df[['diagnosis', 'combined_text']].astype(str).agg(' '.join, axis=1)
+    medical_df.fillna("N/A", inplace=True)  # Replace NaNs with "N/A" for missing values
     return medical_df
 
 medical_df = load_data()
@@ -51,8 +51,8 @@ def build_faiss_index():
 
 faiss_index = build_faiss_index()
 
-# ✅ Hybrid Retrieval Function (Async for Speed)
-async def retrieve_documents(query, top_n=3):
+# ✅ Hybrid Retrieval Function
+def retrieve_documents(query, top_n=3):
     query_tokens = query.lower().split()
     query_embedding = embedding_model.encode(query, convert_to_tensor=False).reshape(1, -1)
 
@@ -67,64 +67,49 @@ async def retrieve_documents(query, top_n=3):
     retrieved_docs = set(bm25_top_n) | set(faiss_top_n[0])
     retrieved_data = medical_df.iloc[list(retrieved_docs)]
 
-    return retrieved_data[['diagnosis', 'combined_text']]
+    return retrieved_data
 
-# ✅ Hugging Face API-Based Text Generation (Fixed Token Limit)
-async def generate_medical_summary(user_query, retrieved_docs):
-    # ✅ Truncate retrieved records to avoid exceeding token limit
-    retrieved_text = retrieved_docs.to_string(index=False)
-    truncated_text = " ".join(retrieved_text.split()[:500])  # Limit to 500 words
-
+# ✅ Hugging Face API-Based Text Completion
+def generate_missing_info(field_name, user_query, retrieved_text):
     prompt = f"""
-    You are a medical AI assistant providing structured reports based on retrieved medical records.
-    Given the following information, generate a structured summary.
+    You are a medical AI assistant. Given a user query and retrieved medical records, generate the missing field: **{field_name}**.
 
     **User Query:** {user_query}
+    **Retrieved Medical Records:** {retrieved_text}
 
-    **Retrieved Medical Records:** {truncated_text}
-
-    **Structured Report:**
-    - **Diagnosis:** (Extract from retrieved records)
-    - **Symptoms:** (Extract from combined_text)
-    - **Medical Details:** (Extract relevant knowledge)
-    - **Treatment & Cure:** (Infer based on medical details)
-    - **Physical Examination Findings:** (If available, extract from records)
-
-    Generate a professional and well-structured report.
+    **{field_name}:** (Provide a well-structured response)
     """
 
-    # ✅ Retry API Call if it Fails
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            response = requests.post(
-                HF_API_URL,
-                headers=HEADERS,
-                json={"inputs": prompt, "parameters": {"max_new_tokens": 300}},  # ✅ Limit output tokens
-                timeout=30
-            )
+    response = requests.post(
+        HF_API_URL,
+        headers=HEADERS,
+        json={"inputs": prompt, "parameters": {"max_new_tokens": 100}},  
+        timeout=30
+    )
 
-            # ✅ If Response is Successful
-            if response.status_code == 200:
-                json_response = response.json()
-                if isinstance(json_response, list) and "generated_text" in json_response[0]:
-                    return json_response[0]["generated_text"]
-                else:
-                    return "⚠️ API returned an unexpected response format."
+    if response.status_code == 200:
+        json_response = response.json()
+        if isinstance(json_response, list) and "generated_text" in json_response[0]:
+            return json_response[0]["generated_text"]
+    return "⚠️ Unable to generate this field."
 
-            elif response.status_code == 422:
-                return "⚠️ Input too long. Please try a shorter query."
+# ✅ Extract & Complete Structured Report
+def generate_structured_report(user_query, retrieved_docs):
+    report = {}
 
-            else:
-                return f"⚠️ Error {response.status_code}: {response.json()}"
+    for field in ["Diagnosis", "Symptoms", "Medical Details", "Treatment & Cure", 
+                  "Physical Examination Findings", "Patient Information", "History", 
+                  "Physical Examination", "Diagnostic Tests", "Treatment & Management", 
+                  "Follow-Up Care", "Outlook"]:
+        
+        retrieved_text = retrieved_docs[field.lower().replace(" ", "_")].to_string(index=False)
+        
+        if retrieved_text.strip() == "N/A":  # Use LLM only if data is missing
+            report[field] = generate_missing_info(field, user_query, retrieved_docs.to_string(index=False))
+        else:
+            report[field] = retrieved_text
 
-        except requests.exceptions.RequestException as e:
-            st.error(f"⚠️ Network error: {e}")
-            if attempt < max_retries - 1:
-                st.warning(f"Retrying... ({attempt+1}/{max_retries})")
-            else:
-                return "⚠️ API request failed after multiple attempts. Please try again later."
-
+    return report
 
 # ✅ Streamlit UI
 st.title("🩺 Medical AI Assistant")
@@ -135,14 +120,16 @@ query = st.text_area("🔍 Enter Medical Query:", placeholder="E.g., Diabetic pa
 if st.button("Generate Report"):
     if query.strip():
         with st.spinner("🔄 Retrieving relevant medical records..."):
-            retrieved_results = asyncio.run(retrieve_documents(query))
+            retrieved_results = retrieve_documents(query)
 
         if not retrieved_results.empty:
             with st.spinner("🧠 Generating structured medical report..."):
-                summary = asyncio.run(generate_medical_summary(query, retrieved_results))
+                report = generate_structured_report(query, retrieved_results)
 
             st.subheader("📄 Generated Medical Report:")
-            st.markdown(f"```{summary}```")
+            for section, content in report.items():
+                st.markdown(f"### {section}\n{content}")
+
         else:
             st.warning("⚠️ No relevant medical records found. Please refine your query.")
     else:
