@@ -11,7 +11,7 @@ from sentence_transformers import SentenceTransformer
 st.set_page_config(page_title="Medical AI Assistant", layout="wide")
 
 # ✅ Hugging Face API Details
-HF_API_URL = "https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct"
+HF_API_URL = "https://api-inference.huggingface.co/models/google/med-palm-2"
 HF_API_KEY = "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"  # Replace with your API key
 HEADERS = {"Authorization": f"Bearer {HF_API_KEY}"}
 
