@@ -11,9 +11,9 @@ from sentence_transformers import SentenceTransformer
 # ✅ Streamlit Page Configuration
 st.set_page_config(page_title="Medical AI Assistant", layout="wide")
 
-# ✅ Hugging Face API Details (Using Falcon-7B-Instruct)
-HF_API_URL = "https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct"
-HF_API_KEY = "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"  # Replace with your API key
+# ✅ Hugging Face API Details (Using a Free Model)
+HF_API_URL = "https://api-inference.huggingface.co/models/facebook/bart-large-cnn"  # Free Model
+HF_API_KEY = "your_huggingface_api_key"  # Replace with your API key
 HEADERS = {"Authorization": f"Bearer {HF_API_KEY}"}
 
 # ✅ Load & Cache Medical Data
@@ -84,7 +84,7 @@ You are a professional medical AI assistant. Based on the following patient data
 === Retrieved Medical Records ===
 {truncated_text}
 
-Generate the report **strictly** in the following format (Use bullet points where necessary):
+Generate the report **strictly** in the following format:
 
 ================ Medical Report ================
 **Diagnosis:** 
@@ -106,34 +106,23 @@ Ensure the report is easy to read, medically professional, and structured with b
 ================================================
 """
 
-    # ✅ Retry API Call if it Fails
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            response = requests.post(
-                HF_API_URL,
-                headers=HEADERS,
-                json={"inputs": prompt, "parameters": {"max_new_tokens": 500}},
-                timeout=30
-            )
+    response = requests.post(
+        HF_API_URL,
+        headers=HEADERS,
+        json={"inputs": prompt, "parameters": {"max_new_tokens": 500}},
+        timeout=30
+    )
 
-            if response.status_code == 200:
-                json_response = response.json()
-                if isinstance(json_response, list) and "generated_text" in json_response[0]:
-                    return json_response[0]["generated_text"]
-                else:
-                    return "⚠️ API returned an unexpected response format."
-            elif response.status_code == 422:
-                return "⚠️ Input too long. Please try a shorter query."
-            else:
-                return f"⚠️ Error {response.status_code}: {response.json()}"
-
-        except requests.exceptions.RequestException as e:
-            st.error(f"⚠️ Network error: {e}")
-            if attempt < max_retries - 1:
-                st.warning(f"Retrying... ({attempt + 1}/{max_retries})")
-            else:
-                return "⚠️ API request failed after multiple attempts. Please try again later."
+    if response.status_code == 200:
+        json_response = response.json()
+        if isinstance(json_response, list) and "generated_text" in json_response[0]:
+            return json_response[0]["generated_text"]
+        else:
+            return "⚠️ API returned an unexpected response format."
+    elif response.status_code == 422:
+        return "⚠️ Input too long. Please try a shorter query."
+    else:
+        return f"⚠️ Error {response.status_code}: {response.json()}"
 
 # ✅ Streamlit UI
 st.title("🩺 Medical AI Assistant")
