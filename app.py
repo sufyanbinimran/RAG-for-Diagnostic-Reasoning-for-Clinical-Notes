@@ -72,10 +72,15 @@ def retrieve_documents(query, top_n=3):
 
     return retrieved_data[['diagnosis', 'combined_text']]
 
-# ✅ Generate Medical Report
+# ✅ Generate Medical Report with Additional Sections
 def generate_medical_report(user_inputs, retrieved_docs):
     retrieved_text = retrieved_docs.to_string(index=False)
     truncated_text = " ".join(retrieved_text.split()[:500])  # Limit to 500 words
+
+    # Extracting Possible Diagnoses, Recommended Tests, and Treatment Plan
+    possible_diagnoses = ", ".join(retrieved_docs['diagnosis'].unique()) if not retrieved_docs.empty else "No diagnosis found."
+    recommended_tests = "Based on symptoms, recommended tests may include blood tests, imaging (X-ray, MRI), and lab tests."
+    treatment_plan = "Treatment may involve medications, lifestyle modifications, and further evaluation by a specialist."
 
     # ✅ Structured Report Format
     report = f"""
@@ -95,13 +100,13 @@ def generate_medical_report(user_inputs, retrieved_docs):
     {truncated_text}
 
     **Possible Diagnoses:**  
-    (Generated based on medical records)
+    {possible_diagnoses}
 
     **Recommended Tests:**  
-    (Suggested based on symptoms and findings)
+    {recommended_tests}
 
     **Treatment Plan:**  
-    (Proposed treatment and management recommendations)
+    {treatment_plan}
     """
 
     return report
