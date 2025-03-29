@@ -78,19 +78,52 @@ def generate_medical_summary(user_query, retrieved_docs):
     truncated_text = " ".join(retrieved_text.split()[:500])  # Limit to 500 words
 
     prompt = f"""
-    You are a professional medical AI assistant. Based on the following patient data, generate a structured medical report.
+    You are a professional medical AI assistant. Based on the following patient data, generate a structured medical report in a formal and organized manner.
+    
+    === Patient Information ===
+    {user_query}
 
-    === Patient Query === {user_query}
+    === Relevant Medical Records ===
+    {truncated_text}
 
-    === Retrieved Medical Records === {truncated_text}
+    Format the report with proper headings and details:
 
-    Format the output as:
-    ✅ Chief Complaint:
-    ✅ Medical History:
-    ✅ Examination Findings:
-    ✅ Possible Diagnoses:
-    ✅ Recommended Tests:
-    ✅ Treatment Plan:
+    ## Patient Medical Report
+
+    **Chief Complaint:**  
+    [Describe the main issue the patient is facing]  
+
+    **Duration of Symptoms:**  
+    [How long symptoms have persisted]  
+
+    **Symptoms Details:**  
+    - [List detailed symptoms]  
+    - [Mention severity if applicable]  
+
+    **Medical History:**  
+    - [List past surgeries, chronic conditions, or medications]  
+
+    **Family History:**  
+    - [Mention genetic disorders, heart disease, etc.]  
+
+    **Lifestyle & Habits:**  
+    - Smoking/Drinking: [No/Occasionally/Regularly]  
+    - Exercise: [Yes/No]  
+    - Sleep Quality: [1-10 rating]  
+
+    **Additional Observations:**  
+    - Fever: [Yes/No, and travel history]  
+    - Cough: [Yes/No, with or without breathing issues]  
+    - Pain: [Location and triggers]  
+
+    **Possible Diagnoses:**  
+    - [Provide potential diagnoses based on symptoms]  
+
+    **Recommended Tests:**  
+    - [Suggest relevant medical tests]  
+
+    **Treatment Plan:**  
+    - [Suggest possible treatments, medications, or follow-ups]  
     """
 
     # ✅ Tokenize & Generate Response
