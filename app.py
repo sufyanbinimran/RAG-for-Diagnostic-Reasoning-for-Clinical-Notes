@@ -1,4 +1,3 @@
-# ✅ Import Required Libraries
 import streamlit as st
 import pandas as pd
 import faiss
@@ -59,70 +58,73 @@ tokenizer, model = load_local_model()
 def retrieve_documents(query, top_n=3):
     query_tokens = query.lower().split()
     query_embedding = embedding_model.encode(query, convert_to_tensor=False).reshape(1, -1)
-
-    # ✅ BM25 Retrieval
+    
     bm25_scores = bm25.get_scores(query_tokens)
     bm25_top_n = np.argsort(bm25_scores)[::-1][:top_n]
-
-    # ✅ FAISS Dense Retrieval
+    
     _, faiss_top_n = faiss_index.search(query_embedding, top_n)
-
-    # ✅ Combine Results
+    
     retrieved_docs = set(bm25_top_n) | set(faiss_top_n[0])
     retrieved_data = medical_df.iloc[list(retrieved_docs)]
-
+    
     return retrieved_data[['diagnosis', 'combined_text']]
 
-# ✅ Generate Summary using Local Model
-def generate_medical_summary(user_query, retrieved_docs):
+# ✅ Generate Medical Report
+def generate_medical_summary(responses, retrieved_docs):
     retrieved_text = retrieved_docs.to_string(index=False)
     truncated_text = " ".join(retrieved_text.split()[:500])  # Limit to 500 words
-
+    
     prompt = f"""
 You are a professional medical AI assistant. Based on the following patient data, generate a structured medical report.
 
-=== User Query ===
-{user_query}
+=== Patient Responses ===
+{responses}
 
 === Retrieved Medical Records ===
 {truncated_text}
 
 Format the output as:
-1️⃣ Diagnosis
-2️⃣ Symptoms
-3️⃣ Medical Details
-4️⃣ Treatment & Cure
-5️⃣ Physical Examination Findings
+✅ Chief Complaint
+✅ Medical History
+✅ Examination Findings
+✅ Possible Diagnoses
+✅ Recommended Tests
+✅ Treatment Plan
 """
-
-    # ✅ Tokenize & Generate Response
+    
     inputs = tokenizer(prompt, return_tensors="pt", max_length=1024, truncation=True)
     summary_ids = model.generate(inputs.input_ids, max_length=500, num_beams=4, early_stopping=True)
     summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
-
+    
     return summary
 
 # ✅ Streamlit UI
 st.title("🩺 Medical AI Assistant")
-st.write("Enter a medical case or symptoms to generate a structured medical report.")
+st.write("Answer the following questions to generate a structured medical report.")
 
-query = st.text_area("🔍 Enter Medical Query:", placeholder="E.g., Diabetic patient with foot pain and numbness")
+responses = {}
+responses["General"] = st.text_input("✅ What brings you here? How long have you had symptoms?")
+responses["Symptoms"] = st.text_area("✅ Describe your symptoms. Pain level (1-10)? Any patterns?")
+responses["Medical History"] = st.text_area("✅ Any chronic conditions, past surgeries, medications?")
+responses["Family History"] = st.text_area("✅ Any genetic disorders, heart disease, or cancer in family?")
+responses["Lifestyle"] = st.text_area("✅ Do you smoke, drink, exercise? Sleep quality?")
+responses["Specific"] = st.text_area("✅ Specific Symptoms: Fever (recent travel?), Cough (shortness of breath?), Pain (location, triggers?)")
 
 if st.button("Generate Report"):
-    if query.strip():
+    if any(response.strip() for response in responses.values()):
         with st.spinner("🔄 Retrieving relevant medical records..."):
-            retrieved_results = retrieve_documents(query)
+            retrieved_results = retrieve_documents(" ".join(responses.values()))
 
         if not retrieved_results.empty:
             with st.spinner("🧠 Generating structured medical report..."):
-                summary = generate_medical_summary(query, retrieved_results)
+                summary = generate_medical_summary(responses, retrieved_results)
 
             st.subheader("📄 Generated Medical Report:")
             st.text(summary)
         else:
-            st.warning("⚠️ No relevant medical records found. Please refine your query.")
+            st.warning("⚠️ No relevant medical records found. Please refine your responses.")
     else:
-        st.error("❌ Please enter a valid medical query.")
+        st.error("❌ Please answer at least one question before generating a report.")
 
 if __name__ == "__main__":
     st.write("🚀 AI Medical Assistant Ready!")
