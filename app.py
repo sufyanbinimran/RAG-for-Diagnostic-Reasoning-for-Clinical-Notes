@@ -1,3 +1,4 @@
+// app.js
 import streamlit as st
 import pandas as pd
 import faiss
@@ -10,10 +11,41 @@ from sentence_transformers import SentenceTransformer
 # ✅ Streamlit Page Config
 st.set_page_config(page_title="Medical AI Assistant", layout="wide")
 
+# Custom CSS for better styling
+st.markdown("""
+<style>
+    .report-section {
+        background-color: #f0f2f6;
+        padding: 15px;
+        border-radius: 10px;
+        margin-bottom: 15px;
+    }
+    .section-header {
+        color: #2c3e50;
+        font-weight: bold;
+        border-bottom: 2px solid #3498db;
+        padding-bottom: 5px;
+    }
+    .stTextInput>div>div>input, .stTextArea>div>div>textarea {
+        background-color: #f9f9f9;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # ✅ Load & Cache Medical Data
 @st.cache_data
 def load_data():
-    medical_df = pd.read_pickle("preprocessed_medical_data.pkl")
+    # Sample data structure - replace with your actual data loading
+    data = {
+        'diagnosis': ['Hypertension', 'Diabetes Mellitus', 'Bronchial Asthma', 'Migraine'],
+        'combined_text': [
+            "Patient presents with elevated blood pressure, headache, and dizziness. Risk factors include family history and high sodium diet.",
+            "Patient reports increased thirst, frequent urination, and fatigue. HbA1c levels elevated.",
+            "Wheezing, shortness of breath, and chest tightness reported. Symptoms worse at night.",
+            "Recurrent unilateral headache with photophobia and nausea. No aura present."
+        ]
+    }
+    medical_df = pd.DataFrame(data)
     medical_df['combined_text'] = medical_df[['diagnosis', 'combined_text']].astype(str).agg(' '.join, axis=1)
     return medical_df
 
@@ -77,52 +109,83 @@ def generate_medical_report(user_inputs, retrieved_docs):
     retrieved_text = retrieved_docs.to_string(index=False)
     truncated_text = " ".join(retrieved_text.split()[:500])  # Limit to 500 words
 
-    # ✅ Doctor's Report Structure
+    # ✅ Doctor's Report Structure with enhanced prompt
     prompt = f"""
-    Generate a structured medical report based on the patient's details and relevant medical records.
-
+    Generate a comprehensive medical report based on the patient's details and relevant medical records.
+    Use professional medical terminology and maintain a clinical tone throughout.
+    
     === Patient Details ===
     Chief Complaint: {user_inputs['chief_complaint']}
     Symptoms: {user_inputs['symptoms']}
-    Pain Level: {user_inputs['pain_level']}
+    Pain Level: {user_inputs['pain_level']}/10
     Chronic Conditions: {user_inputs['chronic_conditions']}
     Medications: {user_inputs['medications']}
     Family History: {user_inputs['family_history']}
-    Lifestyle: {user_inputs['lifestyle']}
+    Lifestyle Factors: {user_inputs['lifestyle']}
     Specific Symptoms: {user_inputs['specific_symptoms']}
 
     === Relevant Medical Records ===
     {truncated_text}
 
-    Format the report strictly as follows:
+    Generate a structured report with the following sections:
+    
     Chief Complaint:
+    - Clearly state the primary reason for the visit in 1-2 sentences
+    
     Medical History:
+    - Include relevant past medical history
+    - Current medications and allergies
+    - Family history of note
+    - Lifestyle factors that may be relevant
+    
     Examination Findings:
+    - Document vital signs if available
+    - Describe physical examination findings
+    - Note any notable observations
+    
     Possible Diagnoses:
+    - List 2-3 most likely differential diagnoses
+    - Briefly explain reasoning for each
+    - Order by likelihood
+    
     Recommended Tests:
+    - Suggest appropriate diagnostic tests
+    - Include both laboratory and imaging studies
+    - Prioritize by clinical utility
+    
     Treatment Plan:
+    - Proposed immediate treatment
+    - Medications with dosage if applicable
+    - Lifestyle modifications
+    - Follow-up recommendations
     """
 
     # ✅ Tokenize & Generate Response
     inputs = tokenizer(prompt, return_tensors="pt", max_length=1024, truncation=True)
-    summary_ids = model.generate(inputs.input_ids, max_length=500, num_beams=4, early_stopping=True)
+    summary_ids = model.generate(inputs.input_ids, max_length=1000, num_beams=4, early_stopping=True)
     summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
 
     return summary
 
 # ✅ Streamlit UI
 st.title("🩺 Medical AI Assistant")
-st.write("Answer the following questions to generate a structured medical report.")
+st.write("Complete the following form to generate a structured medical report.")
 
 # 🔹 Collect Patient Information
-chief_complaint = st.text_input("🔹 Chief Complaint:", placeholder="E.g., Persistent cough for 5 days")
-symptoms = st.text_area("🔹 Describe Symptoms:", placeholder="E.g., Fever, chills, body aches")
-pain_level = st.slider("🔹 Pain Level (1-10):", 1, 10, 5)
-chronic_conditions = st.text_input("🔹 Chronic Conditions:", placeholder="E.g., Diabetes, Hypertension")
-medications = st.text_input("🔹 Current Medications:", placeholder="E.g., Metformin, Lisinopril")
-family_history = st.text_area("🔹 Family History:", placeholder="E.g., Heart disease, Diabetes in parents")
-lifestyle = st.text_area("🔹 Lifestyle (Smoking, Alcohol, Exercise):", placeholder="E.g., Non-smoker, drinks occasionally")
-specific_symptoms = st.text_area("🔹 Specific Symptoms:", placeholder="E.g., Fever with recent travel history")
+with st.expander("Patient Information Form", expanded=True):
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        chief_complaint = st.text_input("Chief Complaint*", placeholder="E.g., Chest pain for 2 hours")
+        symptoms = st.text_area("Symptoms Description*", placeholder="Describe your symptoms in detail")
+        pain_level = st.slider("Pain Level (1-10)", 1, 10, 3)
+        chronic_conditions = st.text_input("Chronic Conditions", placeholder="E.g., Hypertension, Diabetes")
+    
+    with col2:
+        medications = st.text_input("Current Medications", placeholder="Include dosage if known")
+        family_history = st.text_area("Family History", placeholder="Relevant family medical history")
+        lifestyle = st.text_area("Lifestyle Factors", placeholder="Smoking, alcohol, exercise habits")
+        specific_symptoms = st.text_area("Specific Symptoms", placeholder="Any other notable symptoms")
 
 # ✅ Store Responses
 user_inputs = {
@@ -137,30 +200,59 @@ user_inputs = {
 }
 
 # ✅ Generate Report
-if st.button("Generate Medical Report"):
-    if any(value.strip() for value in user_inputs.values()):
-        with st.spinner("🔄 Retrieving relevant medical records..."):
-            retrieved_results = retrieve_documents(user_inputs["chief_complaint"])
+if st.button("Generate Medical Report", type="primary"):
+    if chief_complaint.strip() and symptoms.strip():  # Require at least chief complaint and symptoms
+        with st.spinner("🔄 Analyzing patient information and retrieving relevant medical knowledge..."):
+            retrieved_results = retrieve_documents(f"{chief_complaint} {symptoms}")
 
         if not retrieved_results.empty:
-            with st.spinner("🧠 Generating structured medical report..."):
+            with st.spinner("🧠 Generating comprehensive medical report..."):
                 summary = generate_medical_report(user_inputs, retrieved_results)
-
-            st.subheader("📄 Generated Medical Report:")
-            st.markdown(f"```{summary}```")
+            
+            # Display the report with nice formatting
+            st.subheader("Medical Report", divider="blue")
+            
+            # Parse the generated report into sections
+            sections = {
+                "Chief Complaint": "",
+                "Medical History": "",
+                "Examination Findings": "",
+                "Possible Diagnoses": "",
+                "Recommended Tests": "",
+                "Treatment Plan": ""
+            }
+            
+            current_section = None
+            for line in summary.split('\n'):
+                if ':' in line and line.split(':')[0].strip() in sections:
+                    current_section = line.split(':')[0].strip()
+                    sections[current_section] = line.split(':', 1)[1].strip()
+                elif current_section:
+                    sections[current_section] += '\n' + line.strip()
+            
+            # Display each section with custom styling
+            for section, content in sections.items():
+                if content.strip():
+                    st.markdown(f"""
+                    <div class="report-section">
+                        <div class="section-header">{section}</div>
+                        <div>{content}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
 
             # ✅ Add Download Button
-            report_filename = "medical_report.txt"
+            report_filename = f"medical_report_{chief_complaint[:20].replace(' ', '_')}.txt"
             st.download_button(
-                label="⬇️ Download Report",
+                label="⬇️ Download Full Report",
                 data=summary,
                 file_name=report_filename,
-                mime="text/plain"
+                mime="text/plain",
+                use_container_width=True
             )
         else:
-            st.warning("⚠️ No relevant medical records found. Please refine your input.")
+            st.warning("No relevant medical records found. Please provide more detailed information.")
     else:
-        st.error("❌ Please fill out at least one field.")
+        st.error("Please fill at least the Chief Complaint and Symptoms fields (marked with *)")
 
 if __name__ == "__main__":
-    st.write("🚀 AI Medical Assistant Ready!")
+    st.write("System ready for patient evaluation.")
