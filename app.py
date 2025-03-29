@@ -78,52 +78,19 @@ def generate_medical_summary(user_query, retrieved_docs):
     truncated_text = " ".join(retrieved_text.split()[:500])  # Limit to 500 words
 
     prompt = f"""
-    You are a professional medical AI assistant. Based on the following patient data, generate a structured medical report in a formal and organized manner.
-    
-    === Patient Information ===
-    {user_query}
+    You are a professional medical AI assistant. Based on the following patient data, generate a structured medical report.
 
-    === Relevant Medical Records ===
-    {truncated_text}
+    === Patient Query === {user_query}
 
-    Format the report with proper headings and details:
+    === Retrieved Medical Records === {truncated_text}
 
-    ## Patient Medical Report
-
-    **Chief Complaint:**  
-    [Describe the main issue the patient is facing]  
-
-    **Duration of Symptoms:**  
-    [How long symptoms have persisted]  
-
-    **Symptoms Details:**  
-    - [List detailed symptoms]  
-    - [Mention severity if applicable]  
-
-    **Medical History:**  
-    - [List past surgeries, chronic conditions, or medications]  
-
-    **Family History:**  
-    - [Mention genetic disorders, heart disease, etc.]  
-
-    **Lifestyle & Habits:**  
-    - Smoking/Drinking: [No/Occasionally/Regularly]  
-    - Exercise: [Yes/No]  
-    - Sleep Quality: [1-10 rating]  
-
-    **Additional Observations:**  
-    - Fever: [Yes/No, and travel history]  
-    - Cough: [Yes/No, with or without breathing issues]  
-    - Pain: [Location and triggers]  
-
-    **Possible Diagnoses:**  
-    - [Provide potential diagnoses based on symptoms]  
-
-    **Recommended Tests:**  
-    - [Suggest relevant medical tests]  
-
-    **Treatment Plan:**  
-    - [Suggest possible treatments, medications, or follow-ups]  
+    Format the output as:
+    ✅ Chief Complaint:
+    ✅ Medical History:
+    ✅ Examination Findings:
+    ✅ Possible Diagnoses:
+    ✅ Recommended Tests:
+    ✅ Treatment Plan:
     """
 
     # ✅ Tokenize & Generate Response
@@ -160,33 +127,4 @@ fever = st.radio("✅ Do you have a fever?", ("No", "Yes, and I have traveled re
 cough = st.radio("✅ Do you have a cough?", ("No", "Yes, with shortness of breath", "Yes, but no breathing issues"))
 pain_details = st.text_area("✅ If you have pain, where is it located and what triggers it?")
 
-# ✅ Button to Generate Report
-if st.button("Generate Medical Report"):
-    if chief_complaint.strip():
-        with st.spinner("🔄 Retrieving relevant medical records..."):
-            query = f"{chief_complaint} {symptoms} {medical_history}"
-            retrieved_results = retrieve_documents(query)
-
-        if not retrieved_results.empty:
-            with st.spinner("🧠 Generating structured medical report..."):
-                structured_input = f"""
-                ✅ Chief Complaint: {chief_complaint}
-                ✅ Duration: {duration}
-                ✅ Symptoms: {symptoms}, Pain Level: {pain_level}
-                ✅ Medical History: {medical_history}
-                ✅ Family History: {family_history}
-                ✅ Lifestyle: Smoking/Drinking: {smoke_drink}, Exercise: {exercise}, Sleep Quality: {sleep_quality}
-                ✅ Additional Symptoms: Fever: {fever}, Cough: {cough}, Pain Details: {pain_details}
-                """
-
-                summary = generate_medical_summary(structured_input, retrieved_results)
-
-            st.subheader("📄 Generated Medical Report:")
-            st.markdown(f"```\n{summary}\n```")
-        else:
-            st.warning("⚠️ No relevant medical records found. Please refine your responses.")
-    else:
-        st.error("❌ Please provide your chief complaint to generate the report.")
-
-if __name__ == "__main__":
-    st.write("🚀 AI Medical Assistant Ready!")
+# ✅ Button to Generate
