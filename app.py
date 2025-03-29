@@ -70,6 +70,8 @@ Generate the report in this format:
 ✅ Recommended Tests: [Suggest diagnostic tests]
 ✅ Treatment Plan: [Provide treatment recommendations]
 ================================================
+
+Summarize the findings before the report using bullet points.
 """
 
     response = requests.post(
@@ -103,6 +105,20 @@ if st.button("Generate Doctor’s Report"):
             report = asyncio.run(generate_doctor_report(user_answers, retrieved_results))
 
         st.header("🔹 Doctor’s Report")
+        
+        # ✅ Extract bullet-point summary
+        report_lines = report.split("\n")
+        bullet_points = []
+        for line in report_lines:
+            if line.startswith("✅"):
+                bullet_points.append(f"- {line}")
+            elif line.startswith("="):
+                break
+        
+        # ✅ Display summary before the report
+        st.subheader("🔹 Summary")
+        st.markdown("\n".join(bullet_points))
+        
         st.text(report)
     else:
         st.warning("⚠️ Please enter symptoms to proceed.")
