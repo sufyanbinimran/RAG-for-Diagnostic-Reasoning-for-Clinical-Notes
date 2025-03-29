@@ -72,49 +72,59 @@ def retrieve_documents(query, top_n=3):
 
     return retrieved_data[['diagnosis', 'combined_text']]
 
-# ✅ Generate Structured Medical Report
-def generate_medical_summary(user_inputs, retrieved_docs):
+# ✅ Generate Medical Report
+def generate_medical_report(user_inputs, retrieved_docs):
     retrieved_text = retrieved_docs.to_string(index=False)
     truncated_text = " ".join(retrieved_text.split()[:500])  # Limit to 500 words
 
-    # ✅ Structured Report Format
-    formatted_report = f"""
-    🔹 **Doctor’s Report**  
-    ✅ **Chief Complaint:** {user_inputs['chief_complaint']}  
-    ✅ **Medical History:** {user_inputs['chronic_conditions']}  
-    ✅ **Examination Findings:** {user_inputs['symptoms']}  
-    ✅ **Possible Diagnoses:** Based on the symptoms and retrieved medical records.  
-    ✅ **Recommended Tests:** Further medical tests like MRI, CT scan, blood work as needed.  
-    ✅ **Treatment Plan:** Suggested based on diagnosis.  
-    🔹 **Lifestyle (Smoking, Alcohol, Exercise):** {user_inputs['lifestyle']}  
+    # ✅ Doctor's Report Structure
+    prompt = f"""
+    Based on the patient's medical history and symptoms, generate a structured medical report.
+
+    === Patient Details ===
+    Chief Complaint: {user_inputs['chief_complaint']}
+    Symptoms: {user_inputs['symptoms']}
+    Pain Level: {user_inputs['pain_level']}
+    Chronic Conditions: {user_inputs['chronic_conditions']}
+    Medications: {user_inputs['medications']}
+    Family History: {user_inputs['family_history']}
+    Lifestyle: {user_inputs['lifestyle']}
+    Specific Symptoms: {user_inputs['specific_symptoms']}
+
+    === Relevant Medical Records ===
+    {truncated_text}
+
+    Format the report as:
+    🔹 Doctor’s Report
+    ✅ Chief Complaint:
+    ✅ Medical History:
+    ✅ Examination Findings:
+    ✅ Possible Diagnoses:
+    ✅ Recommended Tests:
+    ✅ Treatment Plan:
+    ✅ Lifestyle (Smoking, Alcohol, Exercise):
     """
 
-    return formatted_report
+    # ✅ Tokenize & Generate Response
+    inputs = tokenizer(prompt, return_tensors="pt", max_length=1024, truncation=True)
+    summary_ids = model.generate(inputs.input_ids, max_length=500, num_beams=4, early_stopping=True)
+    summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
+
+    return summary
 
 # ✅ Streamlit UI
 st.title("🩺 Medical AI Assistant")
 st.write("Answer the following questions to generate a structured medical report.")
 
 # 🔹 Collect Patient Information
-chief_complaint = st.text_input("✅ Chief Complaint:", placeholder="E.g., Persistent headache for 2 weeks")
-symptoms = st.text_area("✅ Describe Symptoms:", placeholder="E.g., Fever, chills, nausea")
-pain_level = st.slider("✅ Pain Level (1-10):", 1, 10, 5)
-chronic_conditions = st.text_input("✅ Chronic Conditions:", placeholder="E.g., Diabetes, Hypertension")
-medications = st.text_input("✅ Current Medications:", placeholder="E.g., Metformin, Insulin")
-family_history = st.text_area("✅ Family History:", placeholder="E.g., Heart disease, Stroke in father")
-specific_symptoms = st.text_area("✅ Specific Symptoms:", placeholder="E.g., Sudden dizziness, nausea")
-
-# 🔹 Lifestyle Buttons
-st.subheader("🔹 Lifestyle (Smoking, Alcohol, Exercise)")
-col1, col2, col3 = st.columns(3)
-with col1:
-    smoking = st.radio("🚬 Smoking:", ["Non-smoker", "Occasional", "Regular"])
-with col2:
-    alcohol = st.radio("🍷 Alcohol:", ["Non-drinker", "Occasional", "Regular"])
-with col3:
-    exercise = st.radio("🏃 Exercise:", ["Sedentary", "Moderate", "Active"])
-
-lifestyle = f"Smoking: {smoking}, Alcohol: {alcohol}, Exercise: {exercise}"
+chief_complaint = st.text_input("🔹 Chief Complaint:", placeholder="E.g., Persistent cough for 5 days")
+symptoms = st.text_area("🔹 Describe Symptoms:", placeholder="E.g., Fever, chills, body aches")
+pain_level = st.slider("🔹 Pain Level (1-10):", 1, 10, 5)
+chronic_conditions = st.text_input("🔹 Chronic Conditions:", placeholder="E.g., Diabetes, Hypertension")
+medications = st.text_input("🔹 Current Medications:", placeholder="E.g., Metformin, Lisinopril")
+family_history = st.text_area("🔹 Family History:", placeholder="E.g., Heart disease, Diabetes in parents")
+lifestyle = st.text_area("🔹 Lifestyle (Smoking, Alcohol, Exercise):", placeholder="E.g., Non-smoker, drinks occasionally")
+specific_symptoms = st.text_area("🔹 Specific Symptoms:", placeholder="E.g., Fever with recent travel history")
 
 # ✅ Store Responses
 user_inputs = {
@@ -136,7 +146,7 @@ if st.button("Generate Medical Report"):
 
         if not retrieved_results.empty:
             with st.spinner("🧠 Generating structured medical report..."):
-                summary = generate_medical_summary(user_inputs, retrieved_results)
+                summary = generate_medical_report(user_inputs, retrieved_results)
 
             st.subheader("📄 Generated Medical Report:")
             st.markdown(f"```{summary}```")
