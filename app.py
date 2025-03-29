@@ -79,7 +79,7 @@ def generate_medical_report(user_inputs, retrieved_docs):
 
     # ✅ Doctor's Report Structure
     prompt = f"""
-    Based on the patient's medical history and symptoms, generate a structured medical report.
+    Generate a structured medical report based on the patient's symptoms and history.
 
     === Patient Details ===
     Chief Complaint: {user_inputs['chief_complaint']}
@@ -94,15 +94,13 @@ def generate_medical_report(user_inputs, retrieved_docs):
     === Relevant Medical Records ===
     {truncated_text}
 
-    Format the report as:
-    🔹 Doctor’s Report
-    ✅ Chief Complaint:
-    ✅ Medical History:
-    ✅ Examination Findings:
-    ✅ Possible Diagnoses:
-    ✅ Recommended Tests:
-    ✅ Treatment Plan:
-    ✅ Lifestyle (Smoking, Alcohol, Exercise):
+    Format the report strictly using these sections:
+    Chief Complaint:
+    Medical History:
+    Examination Findings:
+    Possible Diagnoses:
+    Recommended Tests:
+    Treatment Plan:
     """
 
     # ✅ Tokenize & Generate Response
