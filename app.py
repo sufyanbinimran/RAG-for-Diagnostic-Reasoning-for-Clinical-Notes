@@ -72,15 +72,32 @@ def retrieve_documents(query, top_n=3):
 
     return retrieved_data[['diagnosis', 'combined_text']]
 
-# ✅ Generate Medical Report with Additional Sections
+# ✅ Generate Medical Report
 def generate_medical_report(user_inputs, retrieved_docs):
     retrieved_text = retrieved_docs.to_string(index=False)
     truncated_text = " ".join(retrieved_text.split()[:500])  # Limit to 500 words
 
-    # Extracting Possible Diagnoses, Recommended Tests, and Treatment Plan
-    possible_diagnoses = ", ".join(retrieved_docs['diagnosis'].unique()) if not retrieved_docs.empty else "No diagnosis found."
-    recommended_tests = "Based on symptoms, recommended tests may include blood tests, imaging (X-ray, MRI), and lab tests."
-    treatment_plan = "Treatment may involve medications, lifestyle modifications, and further evaluation by a specialist."
+    # ✅ Possible Diagnoses (from retrieved data)
+    possible_diagnoses = ", ".join(retrieved_docs['diagnosis'].unique())
+
+    # ✅ Suggested Tests
+    recommended_tests = """
+    - Complete Blood Count (CBC)  
+    - X-ray / MRI / CT Scan  
+    - Blood Sugar Test  
+    - ECG (if heart-related symptoms)  
+    - Liver Function Test (LFT)  
+    """
+
+    # ✅ Suggested Treatment Plan with Medications
+    treatment_plan = """
+    - Rest and hydration  
+    - Pain management with Acetaminophen (Paracetamol) or Ibuprofen  
+    - Antibiotics (if bacterial infection suspected)  
+    - Antihistamines for allergic reactions  
+    - Lifestyle modifications (diet, exercise, sleep)  
+    - Follow-up consultation with a specialist  
+    """
 
     # ✅ Structured Report Format
     report = f"""
