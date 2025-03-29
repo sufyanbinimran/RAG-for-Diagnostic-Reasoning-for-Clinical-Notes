@@ -146,8 +146,46 @@ if st.button("Generate Medical Report"):
             with st.spinner("🧠 Generating structured medical report..."):
                 summary = generate_medical_summary(user_inputs, retrieved_results)
 
+            # ✅ Display Report
             st.subheader("📄 Generated Medical Report:")
-            st.text(summary)
+            st.markdown(f"""
+            **✅ Chief Complaint:**  
+            - {user_inputs['chief_complaint']}  
+
+            **✅ Medical History:**  
+            - {user_inputs['chronic_conditions']}  
+            - Medications: {user_inputs['medications']}  
+            - Family History: {user_inputs['family_history']}  
+
+            **✅ Examination Findings:**  
+            - {user_inputs['symptoms']}  
+            - Pain Level: {user_inputs['pain_level']}  
+
+            **✅ Possible Diagnoses:**  
+            - {summary.split('Possible Diagnoses: ')[1].split('Recommended Tests:')[0].strip()}  
+
+            **✅ Recommended Tests:**  
+            - {summary.split('Recommended Tests: ')[1].split('Treatment Plan:')[0].strip()}  
+
+            **✅ Treatment Plan:**  
+            - {summary.split('Treatment Plan: ')[1].strip()}  
+            """, unsafe_allow_html=True)
+
+            # ✅ Button to Download Report
+            report_text = f"""
+            Chief Complaint: {user_inputs['chief_complaint']}
+            Medical History: {user_inputs['chronic_conditions']}
+            Medications: {user_inputs['medications']}
+            Family History: {user_inputs['family_history']}
+            Symptoms: {user_inputs['symptoms']}
+            Pain Level: {user_inputs['pain_level']}
+            Possible Diagnoses: {summary.split('Possible Diagnoses: ')[1].split('Recommended Tests:')[0].strip()}
+            Recommended Tests: {summary.split('Recommended Tests: ')[1].split('Treatment Plan:')[0].strip()}
+            Treatment Plan: {summary.split('Treatment Plan: ')[1].strip()}
+            """
+
+            st.download_button(label="⬇️ Download Report", data=report_text, file_name="Medical_Report.txt", mime="text/plain")
+
         else:
             st.warning("⚠️ No relevant medical records found. Please refine your input.")
     else:
