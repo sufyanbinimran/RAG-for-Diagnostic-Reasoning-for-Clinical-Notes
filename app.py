@@ -77,34 +77,50 @@ def generate_medical_report(user_inputs, retrieved_docs):
     retrieved_text = retrieved_docs.to_string(index=False)
     truncated_text = " ".join(retrieved_text.split()[:500])  # Limit to 500 words
 
-    # ✅ Structured Report Format
-    report = f"""
-    **Chief Complaint:**  
-    {user_inputs['chief_complaint']}
+    # ✅ Doctor's Report Structure
+    prompt = f"""
+    Based on the patient's medical history and symptoms, generate a detailed medical report using the following information.
 
-    **Medical History:**  
-    Symptoms: {user_inputs['symptoms']}  
-    Pain Level: {user_inputs['pain_level']}  
-    Chronic Conditions: {user_inputs['chronic_conditions']}  
-    Medications: {user_inputs['medications']}  
-    Family History: {user_inputs['family_history']}  
-    Lifestyle: {user_inputs['lifestyle']}  
+    === Patient Details ===
+    Chief Complaint: {user_inputs['chief_complaint']}
+    Symptoms: {user_inputs['symptoms']}
+    Pain Level: {user_inputs['pain_level']}
+    Chronic Conditions: {user_inputs['chronic_conditions']}
+    Medications: {user_inputs['medications']}
+    Family History: {user_inputs['family_history']}
+    Lifestyle: {user_inputs['lifestyle']}
     Specific Symptoms: {user_inputs['specific_symptoms']}
 
-    **Examination Findings:**  
+    === Relevant Medical Records ===
     {truncated_text}
 
-    **Possible Diagnoses:**  
-    (Generated based on medical records)
-
-    **Recommended Tests:**  
-    (Suggested based on symptoms and findings)
-
-    **Treatment Plan:**  
-    (Proposed treatment and management recommendations)
+    Generate a comprehensive medical report under these exact headings:
+    
+    Chief Complaint:
+    [Provide detailed description of the patient's primary concern]
+    
+    Medical History:
+    [Include relevant medical history including chronic conditions, medications, and family history]
+    
+    Examination Findings:
+    [Describe findings from physical examination and symptom analysis]
+    
+    Possible Diagnoses:
+    [List potential diagnoses based on the presented information]
+    
+    Recommended Tests:
+    [Suggest diagnostic tests or procedures to confirm diagnosis]
+    
+    Treatment Plan:
+    [Outline recommended treatment options and management strategies]
     """
 
-    return report
+    # ✅ Tokenize & Generate Response
+    inputs = tokenizer(prompt, return_tensors="pt", max_length=1024, truncation=True)
+    summary_ids = model.generate(inputs.input_ids, max_length=800, num_beams=4, early_stopping=True)
+    summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
+
+    return summary
 
 # ✅ Streamlit UI
 st.title("🩺 Medical AI Assistant")
@@ -140,16 +156,43 @@ if st.button("Generate Medical Report"):
 
         if not retrieved_results.empty:
             with st.spinner("🧠 Generating structured medical report..."):
-                report = generate_medical_report(user_inputs, retrieved_results)
+                summary = generate_medical_report(user_inputs, retrieved_results)
 
             st.subheader("📄 Generated Medical Report:")
-            st.markdown(report)
+            
+            # Display the report with formatted headings
+            st.markdown("""
+            **Chief Complaint:**  
+            {}
+            
+            **Medical History:**  
+            {}
+            
+            **Examination Findings:**  
+            {}
+            
+            **Possible Diagnoses:**  
+            {}
+            
+            **Recommended Tests:**  
+            {}
+            
+            **Treatment Plan:**  
+            {}
+            """.format(
+                summary.split("Chief Complaint:")[1].split("Medical History:")[0].strip(),
+                summary.split("Medical History:")[1].split("Examination Findings:")[0].strip(),
+                summary.split("Examination Findings:")[1].split("Possible Diagnoses:")[0].strip(),
+                summary.split("Possible Diagnoses:")[1].split("Recommended Tests:")[0].strip(),
+                summary.split("Recommended Tests:")[1].split("Treatment Plan:")[0].strip(),
+                summary.split("Treatment Plan:")[1].strip()
+            ))
 
             # ✅ Add Download Button
             report_filename = "medical_report.txt"
             st.download_button(
                 label="⬇️ Download Report",
-                data=report,
+                data=summary,
                 file_name=report_filename,
                 mime="text/plain"
             )
