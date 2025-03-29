@@ -58,73 +58,102 @@ tokenizer, model = load_local_model()
 def retrieve_documents(query, top_n=3):
     query_tokens = query.lower().split()
     query_embedding = embedding_model.encode(query, convert_to_tensor=False).reshape(1, -1)
-    
+
+    # ✅ BM25 Retrieval
     bm25_scores = bm25.get_scores(query_tokens)
     bm25_top_n = np.argsort(bm25_scores)[::-1][:top_n]
-    
+
+    # ✅ FAISS Dense Retrieval
     _, faiss_top_n = faiss_index.search(query_embedding, top_n)
-    
+
+    # ✅ Combine Results
     retrieved_docs = set(bm25_top_n) | set(faiss_top_n[0])
     retrieved_data = medical_df.iloc[list(retrieved_docs)]
-    
+
     return retrieved_data[['diagnosis', 'combined_text']]
 
-# ✅ Generate Medical Report
-def generate_medical_summary(responses, retrieved_docs):
+# ✅ Generate Summary using Local Model
+def generate_medical_summary(user_query, retrieved_docs):
     retrieved_text = retrieved_docs.to_string(index=False)
     truncated_text = " ".join(retrieved_text.split()[:500])  # Limit to 500 words
-    
+
     prompt = f"""
-You are a professional medical AI assistant. Based on the following patient data, generate a structured medical report.
+    You are a professional medical AI assistant. Based on the following patient data, generate a structured medical report.
 
-=== Patient Responses ===
-{responses}
+    === Patient Query === {user_query}
 
-=== Retrieved Medical Records ===
-{truncated_text}
+    === Retrieved Medical Records === {truncated_text}
 
-🔹 Doctor’s Report
-✅ Chief Complaint: 
-✅ Medical History: 
-✅ Examination Findings: 
-✅ Possible Diagnoses: 
-✅ Recommended Tests: 
-✅ Treatment Plan: 
-"""
-    
+    Format the output as:
+    ✅ Chief Complaint:
+    ✅ Medical History:
+    ✅ Examination Findings:
+    ✅ Possible Diagnoses:
+    ✅ Recommended Tests:
+    ✅ Treatment Plan:
+    """
+
+    # ✅ Tokenize & Generate Response
     inputs = tokenizer(prompt, return_tensors="pt", max_length=1024, truncation=True)
     summary_ids = model.generate(inputs.input_ids, max_length=500, num_beams=4, early_stopping=True)
     summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
-    
+
     return summary
 
-# ✅ Streamlit UI
+# ✅ Streamlit UI - Medical AI Assistant
 st.title("🩺 Medical AI Assistant")
 st.write("Answer the following questions to generate a structured medical report.")
 
-responses = {}
-responses["General"] = st.text_input("✅ What brings you here? How long have you had symptoms?")
-responses["Symptoms"] = st.text_area("✅ Describe your symptoms. Pain level (1-10)? Any patterns?")
-responses["Medical History"] = st.text_area("✅ Any chronic conditions, past surgeries, medications?")
-responses["Family History"] = st.text_area("✅ Any genetic disorders, heart disease, or cancer in family?")
-responses["Lifestyle"] = st.text_area("✅ Do you smoke, drink, exercise? Sleep quality?")
-responses["Specific"] = st.text_area("✅ Specific Symptoms: Fever (recent travel?), Cough (shortness of breath?), Pain (location, triggers?)")
+# ✅ Collect Patient Information
+st.subheader("🔹 General Information")
+chief_complaint = st.text_input("✅ What brings you here?")
+duration = st.text_input("✅ How long have you had symptoms?")
 
-if st.button("Generate Report"):
-    if any(response.strip() for response in responses.values()):
+st.subheader("🔹 Symptoms Details")
+symptoms = st.text_area("✅ Describe your symptoms in detail.")
+pain_level = st.slider("✅ Pain Level (1-10)?", 1, 10, 5)
+
+st.subheader("🔹 Medical & Family History")
+medical_history = st.text_area("✅ Any chronic conditions, past surgeries, or medications?")
+family_history = st.text_area("✅ Any genetic disorders, heart disease, or cancer in your family?")
+
+st.subheader("🔹 Lifestyle & Habits")
+smoke_drink = st.radio("✅ Do you smoke or drink?", ("No", "Occasionally", "Regularly"))
+exercise = st.radio("✅ Do you exercise?", ("Yes", "No"))
+sleep_quality = st.slider("✅ How would you rate your sleep quality (1-10)?", 1, 10, 7)
+
+st.subheader("🔹 Additional Symptoms (if applicable)")
+fever = st.radio("✅ Do you have a fever?", ("No", "Yes, and I have traveled recently", "Yes, but no recent travel"))
+cough = st.radio("✅ Do you have a cough?", ("No", "Yes, with shortness of breath", "Yes, but no breathing issues"))
+pain_details = st.text_area("✅ If you have pain, where is it located and what triggers it?")
+
+# ✅ Button to Generate Report
+if st.button("Generate Medical Report"):
+    if chief_complaint.strip():
         with st.spinner("🔄 Retrieving relevant medical records..."):
-            retrieved_results = retrieve_documents(" ".join(responses.values()))
+            query = f"{chief_complaint} {symptoms} {medical_history}"
+            retrieved_results = retrieve_documents(query)
 
         if not retrieved_results.empty:
             with st.spinner("🧠 Generating structured medical report..."):
-                summary = generate_medical_summary(responses, retrieved_results)
+                structured_input = f"""
+                ✅ Chief Complaint: {chief_complaint}
+                ✅ Duration: {duration}
+                ✅ Symptoms: {symptoms}, Pain Level: {pain_level}
+                ✅ Medical History: {medical_history}
+                ✅ Family History: {family_history}
+                ✅ Lifestyle: Smoking/Drinking: {smoke_drink}, Exercise: {exercise}, Sleep Quality: {sleep_quality}
+                ✅ Additional Symptoms: Fever: {fever}, Cough: {cough}, Pain Details: {pain_details}
+                """
+
+                summary = generate_medical_summary(structured_input, retrieved_results)
 
             st.subheader("📄 Generated Medical Report:")
-            st.text(summary)
+            st.markdown(f"```\n{summary}\n```")
         else:
             st.warning("⚠️ No relevant medical records found. Please refine your responses.")
     else:
-        st.error("❌ Please answer at least one question before generating a report.")
+        st.error("❌ Please provide your chief complaint to generate the report.")
 
 if __name__ == "__main__":
     st.write("🚀 AI Medical Assistant Ready!")
