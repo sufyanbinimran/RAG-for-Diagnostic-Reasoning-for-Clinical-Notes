@@ -148,10 +148,11 @@ if st.button("Generate Medical Report"):
 
                 summary = generate_medical_summary(structured_input, retrieved_results)
 
-  st.subheader("📄 Generated Medical Report:")
-st.markdown(f"""
-\n{summary}\n
-""")
+            # ✅ Display the Generated Report
+            st.subheader("📄 Generated Medical Report:")
+            st.markdown(f"""
+            \n{summary}\n
+            """)
         else:
             st.warning("⚠️ No relevant medical records found. Please refine your responses.")
     else:
@@ -159,5 +160,3 @@ st.markdown(f"""
 
 if __name__ == "__main__":
     st.write("🚀 AI Medical Assistant Ready!")
-
-
