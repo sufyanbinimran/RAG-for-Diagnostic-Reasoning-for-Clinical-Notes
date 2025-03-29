@@ -9,3 +9,5 @@ rank-bm25
 nest_asyncio
 sacremoses
 uvloop
+requests
+asyncio
