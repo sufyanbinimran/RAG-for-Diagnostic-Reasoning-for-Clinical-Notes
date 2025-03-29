@@ -6,8 +6,6 @@ faiss-cpu
 sentence-transformers
 transformers
 rank-bm25
-nest_asyncio
 sacremoses
 uvloop
 requests
-asyncio
