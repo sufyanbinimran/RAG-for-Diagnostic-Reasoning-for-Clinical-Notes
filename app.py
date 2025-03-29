@@ -1,34 +1,28 @@
-# ✅ Import Required Libraries
 import streamlit as st
 import pandas as pd
 import faiss
 import numpy as np
-import torch
-from transformers import BartForConditionalGeneration, BartTokenizer
+import requests
+import asyncio
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
 
-# ✅ Streamlit Page Config
+# ✅ Streamlit Page Configuration
 st.set_page_config(page_title="Medical AI Assistant", layout="wide")
+
+# ✅ Hugging Face API Details
+HF_API_URL = "https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct"
+HF_API_KEY = "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"  # Replace with your API key
+HEADERS = {"Authorization": f"Bearer {HF_API_KEY}"}
 
 # ✅ Load & Cache Medical Data
 @st.cache_data
 def load_data():
-    medical_df = pd.read_pickle("preprocessed_medical_data.pkl")
-    medical_df['combined_text'] = medical_df[['diagnosis', 'combined_text']].astype(str).agg(' '.join, axis=1)
-    return medical_df
+    return pd.read_pickle("preprocessed_medical_data.pkl")
 
 medical_df = load_data()
 
-# ✅ Tokenize for BM25 (Cached)
-@st.cache_data
-def init_bm25():
-    bm25_corpus = [text.split() for text in medical_df['combined_text']]
-    return BM25Okapi(bm25_corpus)
-
-bm25 = init_bm25()
-
-# ✅ Load & Cache Dense Embedding Model
+# ✅ Load & Cache Embedding Model
 @st.cache_resource
 def load_embedding_model():
     return SentenceTransformer('all-MiniLM-L6-v2')
@@ -46,83 +40,72 @@ def build_faiss_index():
 
 faiss_index = build_faiss_index()
 
-# ✅ Load Local Hugging Face Model (BART)
-@st.cache_resource
-def load_local_model():
-    tokenizer = BartTokenizer.from_pretrained("facebook/bart-large-cnn")
-    model = BartForConditionalGeneration.from_pretrained("facebook/bart-large-cnn")
-    return tokenizer, model
-
-tokenizer, model = load_local_model()
-
-# ✅ Hybrid Retrieval Function
-def retrieve_documents(query, top_n=3):
-    query_tokens = query.lower().split()
+# ✅ Retrieve Relevant Medical Data
+async def retrieve_documents(query, top_n=3):
     query_embedding = embedding_model.encode(query, convert_to_tensor=False).reshape(1, -1)
-
-    # ✅ BM25 Retrieval
-    bm25_scores = bm25.get_scores(query_tokens)
-    bm25_top_n = np.argsort(bm25_scores)[::-1][:top_n]
-
-    # ✅ FAISS Dense Retrieval
     _, faiss_top_n = faiss_index.search(query_embedding, top_n)
+    return medical_df.iloc[list(faiss_top_n[0])][['diagnosis', 'combined_text']]
 
-    # ✅ Combine Results
-    retrieved_docs = set(bm25_top_n) | set(faiss_top_n[0])
-    retrieved_data = medical_df.iloc[list(retrieved_docs)]
-
-    return retrieved_data[['diagnosis', 'combined_text']]
-
-# ✅ Generate Summary using Local Model
-def generate_medical_summary(user_query, retrieved_docs):
+# ✅ Generate Doctor’s Report
+async def generate_doctor_report(answers, retrieved_docs):
     retrieved_text = retrieved_docs.to_string(index=False)
-    truncated_text = " ".join(retrieved_text.split()[:500])  # Limit to 500 words
+    truncated_text = " ".join(retrieved_text.split()[:500])
 
     prompt = f"""
-You are a professional medical AI assistant. Based on the following patient data, generate a structured medical report.
+You are an AI doctor. Based on the following patient responses and retrieved medical records, generate a structured medical report.
 
-=== User Query ===
-{user_query}
+=== Patient Responses ===
+{answers}
 
 === Retrieved Medical Records ===
 {truncated_text}
 
-Format the output as:
-1️⃣ Diagnosis
-2️⃣ Symptoms
-3️⃣ Medical Details
-4️⃣ Treatment & Cure
-5️⃣ Physical Examination Findings
+Generate the report in this format:
+
+================ Doctor’s Report ================
+✅ Chief Complaint: [Summarize main symptoms]
+✅ Medical History: [Summarize chronic conditions, past illnesses]
+✅ Examination Findings: [Summarize vitals, observations]
+✅ Possible Diagnoses: [List potential causes]
+✅ Recommended Tests: [Suggest diagnostic tests]
+✅ Treatment Plan: [Provide treatment recommendations]
+================================================
 """
 
-    # ✅ Tokenize & Generate Response
-    inputs = tokenizer(prompt, return_tensors="pt", max_length=1024, truncation=True)
-    summary_ids = model.generate(inputs.input_ids, max_length=500, num_beams=4, early_stopping=True)
-    summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
+    response = requests.post(
+        HF_API_URL,
+        headers=HEADERS,
+        json={"inputs": prompt, "parameters": {"max_new_tokens": 500}},
+        timeout=30
+    )
 
-    return summary
+    return response.json()[0]["generated_text"] if response.status_code == 200 else "⚠️ Error generating report."
 
 # ✅ Streamlit UI
 st.title("🩺 Medical AI Assistant")
-st.write("Enter a medical case or symptoms to generate a structured medical report.")
 
-query = st.text_area("🔍 Enter Medical Query:", placeholder="E.g., Diabetic patient with foot pain and numbness")
+st.header("🔹 Questions a Doctor Asks")
+general = st.text_input("✅ General: What brings you here? How long have you had symptoms?")
+symptoms = st.text_area("✅ Symptoms: Describe symptoms. Pain level (1-10)? Any patterns?")
+medical_history = st.text_area("✅ Medical History: Any chronic conditions, past surgeries, medications?")
+family_history = st.text_area("✅ Family History: Any genetic disorders, heart disease, cancer in family?")
+lifestyle = st.text_area("✅ Lifestyle: Do you smoke, drink, exercise? Sleep quality?")
+specific = st.text_area("✅ Specific (Based on Symptoms): Fever (recent travel?), Cough (shortness of breath?), Pain (location, triggers?)")
 
-if st.button("Generate Report"):
-    if query.strip():
+if st.button("Generate Doctor’s Report"):
+    user_answers = f"General: {general}\nSymptoms: {symptoms}\nMedical History: {medical_history}\nFamily History: {family_history}\nLifestyle: {lifestyle}\nSpecific: {specific}"
+
+    if symptoms.strip():
         with st.spinner("🔄 Retrieving relevant medical records..."):
-            retrieved_results = retrieve_documents(query)
+            retrieved_results = asyncio.run(retrieve_documents(symptoms))
 
-        if not retrieved_results.empty:
-            with st.spinner("🧠 Generating structured medical report..."):
-                summary = generate_medical_summary(query, retrieved_results)
+        with st.spinner("🧠 Generating Doctor’s Report..."):
+            report = asyncio.run(generate_doctor_report(user_answers, retrieved_results))
 
-            st.subheader("📄 Generated Medical Report:")
-            st.text(summary)
-        else:
-            st.warning("⚠️ No relevant medical records found. Please refine your query.")
+        st.header("🔹 Doctor’s Report")
+        st.text(report)
     else:
-        st.error("❌ Please enter a valid medical query.")
+        st.warning("⚠️ Please enter symptoms to proceed.")
 
 if __name__ == "__main__":
     st.write("🚀 AI Medical Assistant Ready!")
