@@ -1,20 +1,14 @@
-# ✅ Import Necessary Libraries
 import streamlit as st
 import pandas as pd
 import faiss
 import numpy as np
-import requests
-import asyncio
+import torch
+from transformers import BartForConditionalGeneration, BartTokenizer
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
 
-# ✅ Streamlit Page Configuration
+# ✅ Streamlit Page Config
 st.set_page_config(page_title="Medical AI Assistant", layout="wide")
-
-# ✅ Hugging Face API Details (Using Falcon-7B-Instruct)
-HF_API_URL = "https://api-inference.huggingface.co/models/tiiuae/falcon-7b-instruct"
-HF_API_KEY = "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"  # Replace with your API key
-HEADERS = {"Authorization": f"Bearer {HF_API_KEY}"}
 
 # ✅ Load & Cache Medical Data
 @st.cache_data
@@ -51,8 +45,17 @@ def build_faiss_index():
 
 faiss_index = build_faiss_index()
 
-# ✅ Hybrid Retrieval Function (Async for Speed)
-async def retrieve_documents(query, top_n=3):
+# ✅ Load Local Hugging Face Model (BART)
+@st.cache_resource
+def load_local_model():
+    tokenizer = BartTokenizer.from_pretrained("facebook/bart-large-cnn")
+    model = BartForConditionalGeneration.from_pretrained("facebook/bart-large-cnn")
+    return tokenizer, model
+
+tokenizer, model = load_local_model()
+
+# ✅ Hybrid Retrieval Function
+def retrieve_documents(query, top_n=3):
     query_tokens = query.lower().split()
     query_embedding = embedding_model.encode(query, convert_to_tensor=False).reshape(1, -1)
 
@@ -69,96 +72,86 @@ async def retrieve_documents(query, top_n=3):
 
     return retrieved_data[['diagnosis', 'combined_text']]
 
-# ✅ Hugging Face API-Based Text Generation
-async def generate_medical_summary(user_query, retrieved_docs):
+# ✅ Generate Summary using Local Model
+def generate_medical_summary(user_inputs, retrieved_docs):
     retrieved_text = retrieved_docs.to_string(index=False)
     truncated_text = " ".join(retrieved_text.split()[:500])  # Limit to 500 words
 
-    # ✅ Refined Prompt for Professional Summary
+    # ✅ Structured prompt with doctor-like responses
     prompt = f"""
-You are a professional medical AI assistant. Based on the following patient data and medical records, generate a clean, well-structured medical report.
+    You are a professional medical AI assistant. Based on the following patient details, generate a structured medical report.
 
-=== User Query ===
-{user_query}
+    === Patient Information ===
+    Chief Complaint: {user_inputs['chief_complaint']}
+    Symptoms: {user_inputs['symptoms']}
+    Pain Level: {user_inputs['pain_level']}
+    Chronic Conditions: {user_inputs['chronic_conditions']}
+    Medications: {user_inputs['medications']}
+    Family History: {user_inputs['family_history']}
+    Lifestyle: {user_inputs['lifestyle']}
+    Specific Symptoms: {user_inputs['specific_symptoms']}
 
-=== Retrieved Medical Records ===
-{truncated_text}
+    === Retrieved Medical Records ===
+    {truncated_text}
 
-Generate the report **strictly** in the following format (Use bullet points where necessary):
+    Format the output as:
+    ✅ Chief Complaint: 
+    ✅ Medical History: 
+    ✅ Examination Findings: 
+    ✅ Possible Diagnoses: 
+    ✅ Recommended Tests: 
+    ✅ Treatment Plan:
+    """
 
-================ Medical Report ================
-**Diagnosis:** 
-- [List the diagnosis from the records]
+    # ✅ Tokenize & Generate Response
+    inputs = tokenizer(prompt, return_tensors="pt", max_length=1024, truncation=True)
+    summary_ids = model.generate(inputs.input_ids, max_length=500, num_beams=4, early_stopping=True)
+    summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
 
-**Symptoms:** 
-- [List key symptoms]
-
-**Medical Details:** 
-- [Summarize relevant tests, findings, and medical history]
-
-**Treatment & Cure:** 
-- [Mention any treatment or suggested plan]
-
-**Physical Examination Findings:** 
-- [Summarize any physical examinations or vital signs]
-
-Ensure the report is easy to read, medically professional, and structured with bullet points for each section.
-================================================
-"""
-
-    # ✅ Retry API Call if it Fails
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            response = requests.post(
-                HF_API_URL,
-                headers=HEADERS,
-                json={"inputs": prompt, "parameters": {"max_new_tokens": 500}},
-                timeout=30
-            )
-
-            if response.status_code == 200:
-                json_response = response.json()
-                if isinstance(json_response, list) and "generated_text" in json_response[0]:
-                    return json_response[0]["generated_text"]
-                else:
-                    return "⚠️ API returned an unexpected response format."
-            elif response.status_code == 422:
-                return "⚠️ Input too long. Please try a shorter query."
-            else:
-                return f"⚠️ Error {response.status_code}: {response.json()}"
-
-        except requests.exceptions.RequestException as e:
-            st.error(f"⚠️ Network error: {e}")
-            if attempt < max_retries - 1:
-                st.warning(f"Retrying... ({attempt + 1}/{max_retries})")
-            else:
-                return "⚠️ API request failed after multiple attempts. Please try again later."
+    return summary
 
 # ✅ Streamlit UI
 st.title("🩺 Medical AI Assistant")
-st.write("Enter a medical case or symptoms to generate a structured medical report.")
+st.write("Answer the following questions to generate a structured medical report.")
 
-query = st.text_area("🔍 Enter Medical Query:", placeholder="E.g., Diabetic patient with foot pain and numbness")
+# 🔹 Collect Patient Information
+chief_complaint = st.text_input("🔹 Chief Complaint:", placeholder="E.g., Persistent cough for 5 days")
+symptoms = st.text_area("🔹 Describe Symptoms:", placeholder="E.g., Fever, chills, body aches")
+pain_level = st.slider("🔹 Pain Level (1-10):", 1, 10, 5)
+chronic_conditions = st.text_input("🔹 Chronic Conditions:", placeholder="E.g., Diabetes, Hypertension")
+medications = st.text_input("🔹 Current Medications:", placeholder="E.g., Metformin, Lisinopril")
+family_history = st.text_area("🔹 Family History:", placeholder="E.g., Heart disease, Diabetes in parents")
+lifestyle = st.text_area("🔹 Lifestyle (Smoking, Alcohol, Exercise):", placeholder="E.g., Non-smoker, drinks occasionally")
+specific_symptoms = st.text_area("🔹 Specific Symptoms:", placeholder="E.g., Fever with recent travel history")
 
-if st.button("Generate Report"):
-    if query.strip():
+# ✅ Store Responses
+user_inputs = {
+    "chief_complaint": chief_complaint,
+    "symptoms": symptoms,
+    "pain_level": pain_level,
+    "chronic_conditions": chronic_conditions,
+    "medications": medications,
+    "family_history": family_history,
+    "lifestyle": lifestyle,
+    "specific_symptoms": specific_symptoms
+}
+
+# ✅ Generate Report
+if st.button("Generate Medical Report"):
+    if any(value.strip() for value in user_inputs.values()):
         with st.spinner("🔄 Retrieving relevant medical records..."):
-            retrieved_results = asyncio.run(retrieve_documents(query))
+            retrieved_results = retrieve_documents(user_inputs["chief_complaint"])
 
         if not retrieved_results.empty:
             with st.spinner("🧠 Generating structured medical report..."):
-                summary = asyncio.run(generate_medical_summary(query, retrieved_results))
+                summary = generate_medical_summary(user_inputs, retrieved_results)
 
-            # ✅ FINAL OUTPUT - ONLY Summary Displayed
             st.subheader("📄 Generated Medical Report:")
-            st.text(summary)   # Displays ONLY the clean summary
+            st.text(summary)
         else:
-            st.warning("⚠️ No relevant medical records found. Please refine your query.")
+            st.warning("⚠️ No relevant medical records found. Please refine your input.")
     else:
-        st.error("❌ Please enter a valid medical query.")
+        st.error("❌ Please fill out at least one field.")
 
 if __name__ == "__main__":
     st.write("🚀 AI Medical Assistant Ready!")
-
-
