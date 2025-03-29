@@ -1,20 +1,15 @@
-# ✅ Import Necessary Libraries
+# ✅ Import Required Libraries
 import streamlit as st
 import pandas as pd
 import faiss
 import numpy as np
-import requests
-import asyncio
+import torch
+from transformers import BartForConditionalGeneration, BartTokenizer
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
 
-# ✅ Streamlit Page Configuration
+# ✅ Streamlit Page Config
 st.set_page_config(page_title="Medical AI Assistant", layout="wide")
-
-# ✅ Hugging Face API Details (Using a Free Model)
-HF_API_URL = "https://api-inference.huggingface.co/models/facebook/bart-large-cnn"  # Free Model
-HF_API_KEY = "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"  # Replace with your API key
-HEADERS = {"Authorization": f"Bearer {HF_API_KEY}"}
 
 # ✅ Load & Cache Medical Data
 @st.cache_data
@@ -51,8 +46,17 @@ def build_faiss_index():
 
 faiss_index = build_faiss_index()
 
-# ✅ Hybrid Retrieval Function (Async for Speed)
-async def retrieve_documents(query, top_n=3):
+# ✅ Load Local Hugging Face Model (BART)
+@st.cache_resource
+def load_local_model():
+    tokenizer = BartTokenizer.from_pretrained("facebook/bart-large-cnn")
+    model = BartForConditionalGeneration.from_pretrained("facebook/bart-large-cnn")
+    return tokenizer, model
+
+tokenizer, model = load_local_model()
+
+# ✅ Hybrid Retrieval Function
+def retrieve_documents(query, top_n=3):
     query_tokens = query.lower().split()
     query_embedding = embedding_model.encode(query, convert_to_tensor=False).reshape(1, -1)
 
@@ -69,14 +73,13 @@ async def retrieve_documents(query, top_n=3):
 
     return retrieved_data[['diagnosis', 'combined_text']]
 
-# ✅ Hugging Face API-Based Text Generation
-async def generate_medical_summary(user_query, retrieved_docs):
+# ✅ Generate Summary using Local Model
+def generate_medical_summary(user_query, retrieved_docs):
     retrieved_text = retrieved_docs.to_string(index=False)
     truncated_text = " ".join(retrieved_text.split()[:500])  # Limit to 500 words
 
-    # ✅ Refined Prompt for Professional Summary
     prompt = f"""
-You are a professional medical AI assistant. Based on the following patient data and medical records, generate a clean, well-structured medical report.
+You are a professional medical AI assistant. Based on the following patient data, generate a structured medical report.
 
 === User Query ===
 {user_query}
@@ -84,45 +87,20 @@ You are a professional medical AI assistant. Based on the following patient data
 === Retrieved Medical Records ===
 {truncated_text}
 
-Generate the report **strictly** in the following format:
-
-================ Medical Report ================
-**Diagnosis:** 
-- [List the diagnosis from the records]
-
-**Symptoms:** 
-- [List key symptoms]
-
-**Medical Details:** 
-- [Summarize relevant tests, findings, and medical history]
-
-**Treatment & Cure:** 
-- [Mention any treatment or suggested plan]
-
-**Physical Examination Findings:** 
-- [Summarize any physical examinations or vital signs]
-
-Ensure the report is easy to read, medically professional, and structured with bullet points for each section.
-================================================
+Format the output as:
+1️⃣ Diagnosis
+2️⃣ Symptoms
+3️⃣ Medical Details
+4️⃣ Treatment & Cure
+5️⃣ Physical Examination Findings
 """
 
-    response = requests.post(
-        HF_API_URL,
-        headers=HEADERS,
-        json={"inputs": prompt, "parameters": {"max_new_tokens": 500}},
-        timeout=30
-    )
+    # ✅ Tokenize & Generate Response
+    inputs = tokenizer(prompt, return_tensors="pt", max_length=1024, truncation=True)
+    summary_ids = model.generate(inputs.input_ids, max_length=500, num_beams=4, early_stopping=True)
+    summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
 
-    if response.status_code == 200:
-        json_response = response.json()
-        if isinstance(json_response, list) and "generated_text" in json_response[0]:
-            return json_response[0]["generated_text"]
-        else:
-            return "⚠️ API returned an unexpected response format."
-    elif response.status_code == 422:
-        return "⚠️ Input too long. Please try a shorter query."
-    else:
-        return f"⚠️ Error {response.status_code}: {response.json()}"
+    return summary
 
 # ✅ Streamlit UI
 st.title("🩺 Medical AI Assistant")
@@ -133,15 +111,14 @@ query = st.text_area("🔍 Enter Medical Query:", placeholder="E.g., Diabetic pa
 if st.button("Generate Report"):
     if query.strip():
         with st.spinner("🔄 Retrieving relevant medical records..."):
-            retrieved_results = asyncio.run(retrieve_documents(query))
+            retrieved_results = retrieve_documents(query)
 
         if not retrieved_results.empty:
             with st.spinner("🧠 Generating structured medical report..."):
-                summary = asyncio.run(generate_medical_summary(query, retrieved_results))
+                summary = generate_medical_summary(query, retrieved_results)
 
-            # ✅ FINAL OUTPUT - ONLY Summary Displayed
             st.subheader("📄 Generated Medical Report:")
-            st.text(summary)   # Displays ONLY the clean summary
+            st.text(summary)
         else:
             st.warning("⚠️ No relevant medical records found. Please refine your query.")
     else:
