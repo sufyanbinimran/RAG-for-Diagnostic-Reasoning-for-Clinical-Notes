@@ -149,9 +149,7 @@ if st.button("Generate Medical Report"):
                 summary = generate_medical_report(user_inputs, retrieved_results)
 
             st.subheader("📄 Generated Medical Report:")
-            st.markdown(f"
-{summary}
-")
+            st.markdown(f"""{summary}""")
 
             # ✅ Add Download Button
             report_filename = "medical_report.txt"
@@ -168,4 +166,3 @@ if st.button("Generate Medical Report"):
 
 if __name__ == "__main__":
     st.write("🚀 AI Medical Assistant Ready!")
-    
