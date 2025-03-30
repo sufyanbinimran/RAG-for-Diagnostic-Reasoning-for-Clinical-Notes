@@ -92,9 +92,11 @@ def generate_medical_report(user_inputs, retrieved_docs):
     # ✅ Suggested Treatment Plan with Medications
     treatment_plan = """
     - Rest and hydration  
-    - Pain management with Acetaminophen (Paracetamol) or Ibuprofen  
-    - Antibiotics (if bacterial infection suspected)  
-    - Antihistamines for allergic reactions  
+    - Pain relief: Acetaminophen (Paracetamol) or Ibuprofen  
+    - Antibiotics: Amoxicillin, Azithromycin (if bacterial infection suspected)  
+    - Antihistamines: Cetirizine, Loratadine (for allergies)  
+    - Blood Pressure Control: Amlodipine, Losartan  
+    - Diabetes Management: Metformin, Insulin  
     - Lifestyle modifications (diet, exercise, sleep)  
     - Follow-up consultation with a specialist  
     """
@@ -139,7 +141,15 @@ pain_level = st.slider("🔹 Pain Level (1-10):", 1, 10, 5)
 chronic_conditions = st.text_input("🔹 Chronic Conditions:", placeholder="E.g., Diabetes, Hypertension")
 medications = st.text_input("🔹 Current Medications:", placeholder="E.g., Metformin, Lisinopril")
 family_history = st.text_area("🔹 Family History:", placeholder="E.g., Heart disease, Diabetes in parents")
-lifestyle = st.text_area("🔹 Lifestyle (Smoking, Alcohol, Exercise):", placeholder="E.g., Non-smoker, drinks occasionally")
+
+# ✅ Lifestyle Selection with Buttons
+st.subheader("🔹 Lifestyle (Smoking, Alcohol, Exercise)")
+smoking = st.radio("Smoking Habit:", ["Non-Smoker", "Occasional Smoker", "Regular Smoker"], horizontal=True)
+alcohol = st.radio("Alcohol Consumption:", ["Never", "Occasionally", "Regularly"], horizontal=True)
+exercise = st.radio("Exercise Routine:", ["Sedentary", "Moderate", "Active"], horizontal=True)
+
+lifestyle = f"Smoking: {smoking}, Alcohol: {alcohol}, Exercise: {exercise}"
+
 specific_symptoms = st.text_area("🔹 Specific Symptoms:", placeholder="E.g., Fever with recent travel history")
 
 # ✅ Store Responses
