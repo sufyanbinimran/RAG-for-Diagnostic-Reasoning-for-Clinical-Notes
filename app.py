@@ -115,7 +115,7 @@ def generate_medical_report(user_inputs, retrieved_docs):
     Lifestyle: {user_inputs['lifestyle']}  
     Specific Symptoms: {user_inputs['specific_symptoms']}
 
-    **Examination Findings:**  
+    **Examination Findings (Doctor's Notes from RAG):**  
     {truncated_text}
 
     **Possible Diagnoses:**  
